@@ -1,11 +1,24 @@
-// Guardian Dashboard - Top Navigation Bar
+// Guardian Dashboard - Top Bar
 // Medical-grade dark dashboard style
+// Shows: data source mode, current scenario, MQTT status, demo fall button
 
-import { Wifi, Cloud, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Wifi, Cloud, AlertTriangle, RefreshCw, WifiOff, Radio } from 'lucide-react';
 import { useDashboard } from '../contexts/DashboardContext';
+import { SCENARIOS } from '../lib/scenarios';
 
 export default function TopBar() {
-  const { isEnglish, isDemoMode, triggerDemoFall, lastUpdate, vitals } = useDashboard();
+  const {
+    isEnglish,
+    isDemoMode,
+    dataSource,
+    demoScenario,
+    mqttStatus,
+    mqttConnected,
+    triggerDemoFall,
+    lastUpdate,
+  } = useDashboard();
+
+  const currentScenario = SCENARIOS.find(s => s.id === demoScenario);
 
   return (
     <header className="h-14 bg-white border-b border-border flex items-center px-6 gap-4 flex-shrink-0 shadow-sm">
@@ -16,7 +29,7 @@ export default function TopBar() {
             {isEnglish ? 'Active Elderly Companion System' : '独居老人主动陪伴'}
           </h1>
           <span className="text-sm font-normal text-muted-foreground hidden md:inline">
-            {isEnglish ? 'Active Elderly Companion' : 'Active Elderly Companion'}
+            Active Elderly Companion System
           </span>
         </div>
         <p className="text-[11px] text-muted-foreground truncate">
@@ -27,7 +40,7 @@ export default function TopBar() {
       </div>
 
       {/* Status indicators */}
-      <div className="flex items-center gap-4 flex-shrink-0">
+      <div className="flex items-center gap-3 flex-shrink-0">
         {/* TTS Status */}
         <div className="flex items-center gap-1.5 text-[11px]">
           <Wifi size={12} className="text-emerald-500" />
@@ -41,6 +54,42 @@ export default function TopBar() {
           <span className="text-muted-foreground">Qwen-Turbo (Cloud)</span>
         </div>
 
+        {/* Data Source Badge */}
+        {isDemoMode ? (
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
+            style={{
+              backgroundColor: currentScenario ? `${currentScenario.color}18` : 'rgba(245,158,11,0.1)',
+              color: currentScenario?.color ?? '#f59e0b',
+              border: `1px solid ${currentScenario ? currentScenario.color + '40' : 'rgba(245,158,11,0.3)'}`,
+            }}
+          >
+            <span>{currentScenario?.icon ?? '◎'}</span>
+            <span>
+              {isEnglish
+                ? `Demo · ${currentScenario?.label ?? 'Normal'}`
+                : `演示 · ${currentScenario?.label_zh ?? '正常'}`}
+            </span>
+          </div>
+        ) : (
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
+            style={{
+              backgroundColor: mqttConnected ? 'rgba(16,185,129,0.1)' : mqttStatus === 'connecting' ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)',
+              color: mqttConnected ? '#10b981' : mqttStatus === 'connecting' ? '#f59e0b' : '#ef4444',
+              border: `1px solid ${mqttConnected ? 'rgba(16,185,129,0.3)' : mqttStatus === 'connecting' ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)'}`,
+            }}
+          >
+            {mqttConnected ? <Radio size={10} /> : <WifiOff size={10} />}
+            <span>
+              {mqttStatus === 'connected' ? (isEnglish ? 'Live MQTT' : '实时数据')
+                : mqttStatus === 'connecting' ? (isEnglish ? 'Connecting...' : '连接中...')
+                : mqttStatus === 'error' ? (isEnglish ? 'MQTT Error' : 'MQTT 错误')
+                : (isEnglish ? 'MQTT Off' : 'MQTT 断开')}
+            </span>
+          </div>
+        )}
+
         {/* Last update time */}
         {lastUpdate && (
           <div className="flex items-center gap-1 text-[10px] text-muted-foreground bg-muted px-2 py-1 rounded font-mono">
@@ -51,14 +100,14 @@ export default function TopBar() {
           </div>
         )}
 
-        {/* Demo Fall Button */}
+        {/* Demo Fall Button - always visible in demo mode */}
         {isDemoMode && (
           <button
             onClick={triggerDemoFall}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-[11px] font-semibold rounded-lg transition-all shadow-sm hover:shadow-md active:scale-95"
           >
             <AlertTriangle size={12} />
-            {isEnglish ? '⚠ Demo Fall' : '⚠ 模拟跌倒 / Demo Fall'}
+            {isEnglish ? '⚠ Demo Fall' : '⚠ 模拟跌倒'}
           </button>
         )}
       </div>

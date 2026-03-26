@@ -2,7 +2,8 @@
 // Real-time physiological data display with waveform charts
 // Design: Medical-grade dark sidebar + light content, teal accent
 
-import { Heart, Wind, Activity, Zap, GitMerge, Wifi } from 'lucide-react';
+import { useState } from 'react';
+import { Heart, Wind, Activity, Zap, GitMerge, Wifi, WifiOff, Settings2, ChevronDown, ChevronUp } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
@@ -54,7 +55,16 @@ function getFusionRuleLabel(rule: string | undefined, isEnglish: boolean): strin
 }
 
 export default function LiveMonitor() {
-  const { vitals, vitalsHistory, isEnglish, isDemoMode } = useDashboard();
+  const {
+    vitals, vitalsHistory, isEnglish, isDemoMode,
+    dataSource, mqttSettings, setMqttSettings, mqttStatus, mqttError,
+    connectMqtt, disconnectMqtt, mqttConnected,
+  } = useDashboard();
+  const [showMqttConfig, setShowMqttConfig] = useState(false);
+  const [localBroker, setLocalBroker] = useState(mqttSettings.brokerUrl);
+  const [localTopic, setLocalTopic] = useState(mqttSettings.topic);
+  const [localUser, setLocalUser] = useState(mqttSettings.username ?? '');
+  const [localPass, setLocalPass] = useState(mqttSettings.password ?? '');
 
   const hrStatus = getHrStatus(vitals?.fused_hr, isEnglish);
   const respStatus = getRespStatus(vitals?.radar_resp, isEnglish);
@@ -87,6 +97,127 @@ export default function LiveMonitor() {
 
   return (
     <div className="flex-1 overflow-y-auto p-5 space-y-4">
+      {/* MQTT Config Panel */}
+      {dataSource === 'mqtt' && (
+        <div
+          className="rounded-xl border shadow-sm overflow-hidden"
+          style={{ borderColor: mqttConnected ? 'rgba(16,185,129,0.3)' : mqttStatus === 'error' ? 'rgba(239,68,68,0.3)' : 'var(--border)' }}
+        >
+          <button
+            onClick={() => setShowMqttConfig(p => !p)}
+            className="w-full flex items-center justify-between px-4 py-2.5 bg-white hover:bg-muted/30 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              {mqttConnected
+                ? <Wifi size={13} className="text-emerald-500" />
+                : <WifiOff size={13} className="text-muted-foreground" />}
+              <span className="text-xs font-semibold text-foreground">
+                {isEnglish ? 'MQTT Connection' : 'MQTT 实时连接'}
+              </span>
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full font-medium"
+                style={{
+                  backgroundColor: mqttConnected ? 'rgba(16,185,129,0.1)' : mqttStatus === 'connecting' ? 'rgba(245,158,11,0.1)' : mqttStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'var(--muted)',
+                  color: mqttConnected ? '#10b981' : mqttStatus === 'connecting' ? '#f59e0b' : mqttStatus === 'error' ? '#ef4444' : 'var(--muted-foreground)',
+                }}
+              >
+                {mqttStatus === 'connected' ? (isEnglish ? '● Connected' : '● 已连接')
+                  : mqttStatus === 'connecting' ? (isEnglish ? '◌ Connecting...' : '◌ 连接中...')
+                  : mqttStatus === 'error' ? (isEnglish ? '✕ Error' : '✕ 错误')
+                  : (isEnglish ? '○ Disconnected' : '○ 未连接')}
+              </span>
+              {mqttError && (
+                <span className="text-[10px] text-red-500 truncate max-w-xs">{mqttError}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Settings2 size={12} className="text-muted-foreground" />
+              {showMqttConfig ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
+            </div>
+          </button>
+
+          {showMqttConfig && (
+            <div className="px-4 py-3 bg-muted/20 border-t border-border space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground block mb-1">
+                    {isEnglish ? 'Broker URL (WebSocket)' : 'Broker 地址 (WebSocket)'}
+                  </label>
+                  <input
+                    type="text"
+                    value={localBroker}
+                    onChange={e => setLocalBroker(e.target.value)}
+                    placeholder="ws://192.168.1.100:9001"
+                    className="w-full text-[11px] px-2.5 py-1.5 rounded border border-border bg-white font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <p className="text-[9px] text-muted-foreground mt-0.5">
+                    {isEnglish ? 'Mosquitto WebSocket port (default 9001)' : 'Mosquitto WebSocket 端口（默认 9001）'}
+                  </p>
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground block mb-1">
+                    {isEnglish ? 'Topic' : 'MQTT 主题'}
+                  </label>
+                  <input
+                    type="text"
+                    value={localTopic}
+                    onChange={e => setLocalTopic(e.target.value)}
+                    placeholder="companion/status"
+                    className="w-full text-[11px] px-2.5 py-1.5 rounded border border-border bg-white font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground block mb-1">
+                    {isEnglish ? 'Username (optional)' : '用户名（可选）'}
+                  </label>
+                  <input
+                    type="text"
+                    value={localUser}
+                    onChange={e => setLocalUser(e.target.value)}
+                    className="w-full text-[11px] px-2.5 py-1.5 rounded border border-border bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground block mb-1">
+                    {isEnglish ? 'Password (optional)' : '密码（可选）'}
+                  </label>
+                  <input
+                    type="password"
+                    value={localPass}
+                    onChange={e => setLocalPass(e.target.value)}
+                    className="w-full text-[11px] px-2.5 py-1.5 rounded border border-border bg-white focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setMqttSettings({ brokerUrl: localBroker, topic: localTopic, username: localUser || undefined, password: localPass || undefined });
+                    connectMqtt();
+                  }}
+                  className="px-4 py-1.5 bg-primary text-primary-foreground text-[11px] font-semibold rounded-lg hover:opacity-90 transition-opacity"
+                >
+                  {mqttConnected ? (isEnglish ? 'Reconnect' : '重新连接') : (isEnglish ? 'Connect' : '连接')}
+                </button>
+                {mqttConnected && (
+                  <button
+                    onClick={disconnectMqtt}
+                    className="px-4 py-1.5 bg-red-50 text-red-500 border border-red-200 text-[11px] font-semibold rounded-lg hover:bg-red-100 transition-colors"
+                  >
+                    {isEnglish ? 'Disconnect' : '断开连接'}
+                  </button>
+                )}
+                <span className="text-[10px] text-muted-foreground">
+                  {isEnglish
+                    ? 'Jetson Nano must have Mosquitto with WebSocket enabled (port 9001)'
+                    : 'Jetson Nano 需启用 Mosquitto WebSocket（端口 9001）'}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>

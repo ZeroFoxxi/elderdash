@@ -1,8 +1,11 @@
 // Guardian Dashboard - Sidebar Navigation
 // Dark sidebar with teal accent, medical dashboard style
+// Includes: Data Source Switcher (Demo/MQTT) + Scenario Selector
 
-import { Activity, BarChart2, Bell, MessageSquare, FileText, Heart, Shield } from 'lucide-react';
+import { useState } from 'react';
+import { Activity, BarChart2, Bell, MessageSquare, FileText, Wifi, WifiOff, ChevronDown, ChevronUp, Settings } from 'lucide-react';
 import { useDashboard } from '../contexts/DashboardContext';
+import { SCENARIOS } from '../lib/scenarios';
 import type { PageType } from '../lib/types';
 
 const navItems: {
@@ -61,10 +64,26 @@ export default function Sidebar() {
     setCurrentPage,
     isEnglish,
     isDemoMode,
-    toggleDemoMode,
+    dataSource,
+    setDataSource,
+    demoScenario,
+    setDemoScenario,
+    mqttStatus,
+    mqttConnected,
     toggleLanguage,
     unackedCount,
+    connectMqtt,
+    disconnectMqtt,
   } = useDashboard();
+
+  const [showDataPanel, setShowDataPanel] = useState(false);
+
+  const mqttStatusColor = mqttStatus === 'connected' ? '#10b981'
+    : mqttStatus === 'connecting' ? '#f59e0b'
+    : mqttStatus === 'error' ? '#ef4444'
+    : 'oklch(0.4 0.01 240)';
+
+  const currentScenario = SCENARIOS.find(s => s.id === demoScenario);
 
   return (
     <aside
@@ -78,54 +97,53 @@ export default function Sidebar() {
             className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: 'oklch(0.62 0.14 185 / 0.2)' }}
           >
-            <Heart size={13} style={{ color: 'oklch(0.62 0.14 185)' }} />
+            <span style={{ color: 'oklch(0.62 0.14 185)' }} className="text-xs font-bold">G</span>
           </div>
           <div className="min-w-0">
-            <div className="text-[12px] font-bold text-white leading-tight">Guardian</div>
-            <div className="text-[9px] leading-tight" style={{ color: 'oklch(0.7 0.01 240)' }}>
-              Companion System · 智
+            <div className="text-[11px] font-semibold text-white truncate">Guardian</div>
+            <div className="text-[9px] truncate" style={{ color: 'oklch(0.5 0.01 240)' }}>
+              Companion System · 智能守护
             </div>
           </div>
-        </div>
-        <div className="text-[9px] pl-9" style={{ color: 'oklch(0.55 0.01 240)' }}>
-          能守护
         </div>
       </div>
 
       {/* Device Status */}
-      <div className="px-4 py-3 border-b border-sidebar-border">
+      <div className="px-4 py-2.5 border-b border-sidebar-border">
         <div className="flex items-center gap-1.5 mb-0.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot flex-shrink-0" />
-          <span className="text-[11px] font-semibold text-white truncate">Jetson Nano B01</span>
+          <div className="w-1.5 h-1.5 rounded-full live-dot" style={{ backgroundColor: '#10b981' }} />
+          <span className="text-[10px] font-medium" style={{ color: 'oklch(0.85 0.01 240)' }}>
+            Jetson Nano B01
+          </span>
         </div>
-        <div className="text-[9px] pl-3" style={{ color: 'oklch(0.55 0.01 240)' }}>
+        <div className="text-[9px]" style={{ color: 'oklch(0.45 0.01 240)' }}>
           R60ABD1 + PPG {isEnglish ? 'Online' : '在线'}
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 py-2 overflow-y-auto">
+      <nav className="flex-1 px-2 py-2 space-y-0.5 overflow-y-auto">
         {navItems.map(item => {
           const isActive = currentPage === item.id;
           return (
             <button
               key={item.id}
               onClick={() => setCurrentPage(item.id)}
-              className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-all relative"
+              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition-all relative"
               style={{
                 backgroundColor: isActive ? 'oklch(0.62 0.14 185)' : 'transparent',
-                color: isActive ? 'white' : 'oklch(0.65 0.01 240)',
+                color: isActive ? 'white' : 'oklch(0.6 0.01 240)',
               }}
               onMouseEnter={e => {
                 if (!isActive) {
                   (e.currentTarget as HTMLElement).style.backgroundColor = 'oklch(0.25 0.03 250)';
-                  (e.currentTarget as HTMLElement).style.color = 'oklch(0.9 0.01 240)';
+                  (e.currentTarget as HTMLElement).style.color = 'oklch(0.85 0.01 240)';
                 }
               }}
               onMouseLeave={e => {
                 if (!isActive) {
                   (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
-                  (e.currentTarget as HTMLElement).style.color = 'oklch(0.65 0.01 240)';
+                  (e.currentTarget as HTMLElement).style.color = 'oklch(0.6 0.01 240)';
                 }
               }}
             >
@@ -161,21 +179,136 @@ export default function Sidebar() {
 
       {/* Bottom controls */}
       <div className="px-3 py-3 border-t border-sidebar-border space-y-1.5">
+
+        {/* Data Source Toggle Button */}
         <button
-          onClick={toggleDemoMode}
+          onClick={() => setShowDataPanel(prev => !prev)}
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[10px] transition-all"
           style={{
-            backgroundColor: isDemoMode ? 'oklch(0.7 0.15 65 / 0.15)' : 'transparent',
-            color: isDemoMode ? 'oklch(0.85 0.12 65)' : 'oklch(0.5 0.01 240)',
-            border: isDemoMode ? '1px solid oklch(0.7 0.15 65 / 0.3)' : '1px solid transparent',
+            backgroundColor: showDataPanel ? 'oklch(0.25 0.03 250)' : 'transparent',
+            color: isDemoMode ? 'oklch(0.85 0.12 65)' : mqttConnected ? '#10b981' : 'oklch(0.5 0.01 240)',
+            border: `1px solid ${isDemoMode ? 'oklch(0.7 0.15 65 / 0.3)' : mqttConnected ? 'rgba(16,185,129,0.3)' : 'transparent'}`,
           }}
         >
-          <div
-            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isDemoMode ? 'live-dot' : ''}`}
-            style={{ backgroundColor: isDemoMode ? 'oklch(0.85 0.12 65)' : 'oklch(0.4 0.01 240)' }}
-          />
-          {isEnglish ? 'Demo Data' : '模拟数据'}
+          {isDemoMode
+            ? <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 live-dot" style={{ backgroundColor: 'oklch(0.85 0.12 65)' }} />
+            : mqttConnected
+              ? <Wifi size={10} className="flex-shrink-0" />
+              : <WifiOff size={10} className="flex-shrink-0" />
+          }
+          <span className="flex-1 text-left truncate">
+            {isDemoMode
+              ? (isEnglish ? 'Demo Mode' : '演示模式')
+              : mqttStatus === 'connecting'
+                ? (isEnglish ? 'Connecting...' : '连接中...')
+                : mqttConnected
+                  ? (isEnglish ? 'Live MQTT' : '实时数据')
+                  : (isEnglish ? 'MQTT Off' : 'MQTT 断开')}
+          </span>
+          {showDataPanel ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
         </button>
+
+        {/* Data Source Panel */}
+        {showDataPanel && (
+          <div
+            className="rounded-lg p-2 space-y-2"
+            style={{ backgroundColor: 'oklch(0.13 0.02 250)', border: '1px solid oklch(0.28 0.02 250)' }}
+          >
+            {/* Mode Tabs */}
+            <div className="flex gap-1">
+              <button
+                onClick={() => setDataSource('demo')}
+                className="flex-1 py-1 rounded text-[9px] font-medium transition-all"
+                style={{
+                  backgroundColor: isDemoMode ? 'oklch(0.62 0.14 185)' : 'oklch(0.22 0.02 250)',
+                  color: isDemoMode ? 'white' : 'oklch(0.5 0.01 240)',
+                }}
+              >
+                {isEnglish ? 'Demo' : '演示'}
+              </button>
+              <button
+                onClick={() => setDataSource('mqtt')}
+                className="flex-1 py-1 rounded text-[9px] font-medium transition-all"
+                style={{
+                  backgroundColor: !isDemoMode ? 'oklch(0.62 0.14 185)' : 'oklch(0.22 0.02 250)',
+                  color: !isDemoMode ? 'white' : 'oklch(0.5 0.01 240)',
+                }}
+              >
+                MQTT
+              </button>
+            </div>
+
+            {/* Demo: Scenario Selector */}
+            {isDemoMode && (
+              <div className="space-y-1">
+                <div className="text-[9px] font-medium" style={{ color: 'oklch(0.5 0.01 240)' }}>
+                  {isEnglish ? 'Scenario' : '情境'}
+                </div>
+                {SCENARIOS.map(s => (
+                  <button
+                    key={s.id}
+                    onClick={() => setDemoScenario(s.id)}
+                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-[9px] transition-all text-left"
+                    style={{
+                      backgroundColor: demoScenario === s.id ? `${s.color}22` : 'transparent',
+                      color: demoScenario === s.id ? s.color : 'oklch(0.5 0.01 240)',
+                      border: demoScenario === s.id ? `1px solid ${s.color}44` : '1px solid transparent',
+                    }}
+                  >
+                    <span className="flex-shrink-0">{s.icon}</span>
+                    <span className="truncate">{isEnglish ? s.label : s.label_zh}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* MQTT: Connection Status */}
+            {!isDemoMode && (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <div
+                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: mqttStatusColor }}
+                  />
+                  <span className="text-[9px]" style={{ color: mqttStatusColor }}>
+                    {mqttStatus === 'connected' ? (isEnglish ? 'Connected' : '已连接')
+                      : mqttStatus === 'connecting' ? (isEnglish ? 'Connecting...' : '连接中...')
+                      : mqttStatus === 'error' ? (isEnglish ? 'Error' : '连接错误')
+                      : (isEnglish ? 'Disconnected' : '未连接')}
+                  </span>
+                </div>
+                <div className="text-[8px] truncate" style={{ color: 'oklch(0.4 0.01 240)' }}>
+                  ws://jetson:9001
+                </div>
+                <button
+                  onClick={mqttConnected ? disconnectMqtt : connectMqtt}
+                  className="w-full py-1 rounded text-[9px] font-medium transition-all"
+                  style={{
+                    backgroundColor: mqttConnected ? 'oklch(0.6 0.22 25 / 0.2)' : 'oklch(0.62 0.14 185 / 0.2)',
+                    color: mqttConnected ? '#ef4444' : 'oklch(0.62 0.14 185)',
+                    border: `1px solid ${mqttConnected ? 'rgba(239,68,68,0.3)' : 'oklch(0.62 0.14 185 / 0.3)'}`,
+                  }}
+                >
+                  {mqttConnected
+                    ? (isEnglish ? 'Disconnect' : '断开')
+                    : (isEnglish ? 'Connect' : '连接')}
+                </button>
+                <button
+                  onClick={() => setCurrentPage('live')}
+                  className="w-full flex items-center justify-center gap-1 py-1 rounded text-[9px] transition-all"
+                  style={{ color: 'oklch(0.5 0.01 240)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = 'oklch(0.8 0.01 240)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'oklch(0.5 0.01 240)'; }}
+                >
+                  <Settings size={9} />
+                  {isEnglish ? 'Configure' : '配置'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Language Toggle */}
         <button
           onClick={toggleLanguage}
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[10px] transition-all"
