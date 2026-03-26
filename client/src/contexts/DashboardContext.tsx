@@ -1,7 +1,7 @@
 // Guardian Dashboard - Main Data Context
 // Supports:
 //   - Demo mode: multi-scenario simulation (normal/hr_high/fall/night/spo2_low)
-//   - Realtime mode: WebSocket /ws/live ← data pushed from Jetson via HTTP API
+//   - Realtime mode: HTTP polling via tRPC every 5s (works in all environments)
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import type { VitalsData, AlertData, BVIDataPoint, ConversationMessage, PageType } from '../lib/types';
@@ -11,7 +11,7 @@ import {
   DEMO_CONVERSATIONS,
 } from '../lib/demo';
 import { ScenarioEngine, type ScenarioType } from '../lib/scenarios';
-import { useRealtime, type RealtimeVitals, type RealtimeAlert, type RealtimeCompanionLog } from '../hooks/useRealtime';
+import { trpc } from '../lib/trpc';
 
 export type DataSourceMode = 'demo' | 'realtime';
 
@@ -53,29 +53,48 @@ interface DashboardContextType {
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
 
-// Convert Jetson realtime vitals → internal VitalsData format
-function mapRealtimeVitals(rv: RealtimeVitals): VitalsData {
-  const hr = rv.fusedHr ?? rv.radarHr ?? 0;
+// Convert DB vitals row → internal VitalsData format
+function mapDbVitals(row: {
+  radarHr: number | null;
+  radarRr: number | null;
+  movement: number | null;
+  bvi: number | null;
+  ppgHr: number | null;
+  ppgSpo2: number | null;
+  ppgSignalQuality: number | null;
+  ppgConnected: boolean | null;
+  fusedHr: number | null;
+  fusedMethod: string | null;
+  targetId: string | null;
+}): VitalsData {
+  const hr = row.fusedHr ?? row.radarHr ?? 0;
   return {
     heartRate: hr,
-    respRate: rv.radarRr ?? 0,
-    movement: rv.movement ?? 0,
-    bvi: rv.bvi ?? 0,
-    ppgHr: rv.ppgHr,
-    ppgSpo2: rv.ppgSpo2 ?? 0,
-    ppgSignalQuality: rv.ppgSignalQuality ?? 0,
-    ppgConnected: rv.ppgConnected,
-    radarHr: rv.radarHr ?? 0,
-    fusedHr: rv.fusedHr ?? 0,
-    fusedMethod: rv.fusedMethod ?? 'Radar only',
-    targetId: rv.targetId ?? 'None',
+    respRate: row.radarRr ?? 0,
+    movement: row.movement ?? 0,
+    bvi: row.bvi ?? 0,
+    ppgHr: row.ppgHr ?? 0,
+    ppgSpo2: row.ppgSpo2 ?? 0,
+    ppgSignalQuality: row.ppgSignalQuality ?? 0,
+    ppgConnected: row.ppgConnected ?? false,
+    radarHr: row.radarHr ?? 0,
+    fusedHr: row.fusedHr ?? 0,
+    fusedMethod: row.fusedMethod ?? 'Radar only',
+    targetId: row.targetId ?? 'None',
     alert: null,
   };
 }
 
-// Convert Jetson alert → internal AlertData format
-function mapRealtimeAlert(ra: RealtimeAlert): AlertData {
-  const ts = new Date(ra.createdAt);
+// Convert DB alert row → internal AlertData format
+function mapDbAlert(row: {
+  alertType: string;
+  severity: string;
+  message: string;
+  messageZh: string | null;
+  acknowledged: boolean | null;
+  createdAt: Date | string;
+}): AlertData {
+  const ts = new Date(row.createdAt);
   const timeStr = `${String(ts.getMonth() + 1).padStart(2, '0')}/${String(ts.getDate()).padStart(2, '0')} ${String(ts.getHours()).padStart(2, '0')}:${String(ts.getMinutes()).padStart(2, '0')}`;
   const severityMap: Record<string, AlertData['severity']> = {
     critical: 'Critical',
@@ -83,22 +102,21 @@ function mapRealtimeAlert(ra: RealtimeAlert): AlertData {
     info: 'Info',
   };
   return {
-    type: ra.alertType,
-    severity: severityMap[ra.severity] ?? 'Warning',
-    message: ra.message,
-    message_zh: ra.messageZh ?? ra.message,
+    type: row.alertType,
+    severity: severityMap[row.severity] ?? 'Warning',
+    message: row.message,
+    message_zh: row.messageZh ?? row.message,
     timestamp: timeStr,
-    acknowledged: ra.acknowledged,
+    acknowledged: row.acknowledged ?? false,
   };
 }
 
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [currentPage, setCurrentPage] = useState<PageType>('live');
   const [isEnglish, setIsEnglish] = useState(false);
-  const [dataSource, setDataSourceState] = useState<DataSourceMode>('realtime');  // Default: realtime
+  const [dataSource, setDataSourceState] = useState<DataSourceMode>('realtime');
   const [demoScenario, setDemoScenarioState] = useState<ScenarioType>('normal');
   const [realtimeConnected, setRealtimeConnected] = useState(false);
-  const lastVitalsTimeRef = useRef<number>(0);
 
   const [vitals, setVitals] = useState<VitalsData | null>(null);
   const [vitalsHistory, setVitalsHistory] = useState<VitalsData[]>([]);
@@ -109,6 +127,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
   const scenarioEngineRef = useRef<ScenarioEngine>(new ScenarioEngine());
   const demoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastSeenTs = useRef<number>(0);
+  const prevVitalsRef = useRef<VitalsData | null>(null);
 
   const toggleLanguage = useCallback(() => setIsEnglish(prev => !prev), []);
 
@@ -124,75 +144,74 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     scenarioEngineRef.current.setScenario(s);
   }, []);
 
-  // ─── Realtime WebSocket ─────────────────────────────────────────────────────
-  useRealtime({
-    onConnect: () => {
-      setRealtimeConnected(true);
-      console.log('[Dashboard] Realtime connected');
-    },
-    onDisconnect: () => {
-      setRealtimeConnected(false);
-    },
-    onInit: (msg) => {
-      // Load initial state from server
-      if (msg.data.latestVitals) {
-        const mapped = mapRealtimeVitals(msg.data.latestVitals);
+  // ─── tRPC Polling (replaces WebSocket) ─────────────────────────────────────
+  // Poll every 5 seconds, always enabled regardless of mode
+  const { data: pollData } = trpc.realtime.poll.useQuery(
+    { since: lastSeenTs.current },
+    {
+      refetchInterval: 5000,
+      refetchIntervalInBackground: true,
+      staleTime: 0,
+    }
+  );
+
+  useEffect(() => {
+    if (!pollData) return;
+
+    const { vitals: dbVitals, isLive, alerts: newAlerts, companionLogs: newLogs, serverTs } = pollData;
+
+    // Update connection status based on data freshness
+    setRealtimeConnected(isLive);
+
+    if (isLive && dbVitals) {
+      // Auto-switch to realtime when live data arrives
+      setDataSourceState('realtime');
+
+      const mapped = mapDbVitals(dbVitals);
+
+      // Only update if data actually changed (compare heartRate as proxy)
+      if (mapped.heartRate !== prevVitalsRef.current?.heartRate ||
+          mapped.bvi !== prevVitalsRef.current?.bvi) {
+        prevVitalsRef.current = mapped;
         setVitals(mapped);
         setLastUpdate(new Date());
+        setVitalsHistory(prev => [...prev, mapped].slice(-60));
+        setBviHistory(prev => {
+          const now = new Date();
+          const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+          return [...prev, { time: timeStr, bvi: mapped.bvi, active: mapped.bvi >= 40 }].slice(-288);
+        });
       }
-      if (msg.data.recentAlerts.length > 0) {
-        const mappedAlerts = msg.data.recentAlerts.map(mapRealtimeAlert);
-        setAlerts(mappedAlerts);
-      }
-      if (msg.data.companionLogs.length > 0) {
-        // Convert companion logs to conversation messages
-        const msgs: ConversationMessage[] = msg.data.companionLogs.map(log => ({
-          role: log.role as 'user' | 'assistant' | 'system',
-          content: log.content,
-          timestamp: new Date(log.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
-          type: log.logType as any,
-        }));
-        setConversations(msgs.reverse());
-      }
-    },
-    onVitals: (rv) => {
-      // Mark as connected and auto-switch to realtime whenever we receive vitals data
-      lastVitalsTimeRef.current = Date.now();
-      setRealtimeConnected(true);
-      setDataSourceState('realtime');  // Auto-switch to realtime when data arrives
-      const mapped = mapRealtimeVitals(rv);
-      setVitals(mapped);
-      setLastUpdate(new Date());
-      setVitalsHistory(prev => [...prev, mapped].slice(-60));
-      // Update BVI history
-      setBviHistory(prev => {
-        const now = new Date();
-        const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-        return [...prev, { time: timeStr, bvi: rv.bvi ?? 0, active: (rv.bvi ?? 0) >= 40 }].slice(-288);
-      });
-    },
-    onAlert: (ra) => {
-      const mapped = mapRealtimeAlert(ra);
+    }
+
+    // Process new alerts
+    if (newAlerts.length > 0) {
+      const mappedAlerts = newAlerts.map(mapDbAlert);
       setAlerts(prev => {
-        const recent = prev.slice(0, 5).find(a => a.type === mapped.type && !a.acknowledged);
-        if (recent) return prev;
-        return [mapped, ...prev];
+        const existingTypes = new Set(prev.slice(0, 20).map(a => `${a.type}-${a.timestamp}`));
+        const truly_new = mappedAlerts.filter(a => !existingTypes.has(`${a.type}-${a.timestamp}`));
+        if (truly_new.length === 0) return prev;
+        // Auto-navigate to alerts for critical
+        const hasCritical = truly_new.some(a => a.severity === 'Critical');
+        if (hasCritical) setCurrentPage('alerts');
+        return [...truly_new, ...prev];
       });
-      // Auto-navigate to alerts page for critical alerts
-      if (ra.severity === 'critical') {
-        setCurrentPage('alerts');
-      }
-    },
-    onCompanion: (log) => {
-      const msg: ConversationMessage = {
+    }
+
+    // Process new companion logs
+    if (newLogs.length > 0) {
+      const msgs: ConversationMessage[] = newLogs.map(log => ({
         role: log.role as 'user' | 'assistant' | 'system',
         content: log.content,
         timestamp: new Date(log.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
         type: log.logType as any,
-      };
-      setConversations(prev => [...prev, msg].slice(-100));
-    },
-  }, true); // Always connect to realtime WebSocket
+      }));
+      setConversations(msgs.reverse());
+    }
+
+    // Update lastSeenTs for delta polling
+    lastSeenTs.current = serverTs;
+  }, [pollData]);
 
   // ─── Demo mode data generation ──────────────────────────────────────────────
   useEffect(() => {

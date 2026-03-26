@@ -4,6 +4,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { companionRouter } from "./routers/companion";
 import { reportRouter } from "./routers/report";
+import { realtimeRouter } from "./routers/realtime";
 
 export const appRouter = router({
   system: systemRouter,
@@ -17,6 +18,9 @@ export const appRouter = router({
       } as const;
     }),
   }),
+
+  // Real-time polling (replaces WebSocket for production compatibility)
+  realtime: realtimeRouter,
 
   // AI Companion voice chat
   companion: companionRouter,
