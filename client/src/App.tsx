@@ -1,41 +1,57 @@
+// Guardian Dashboard - Main App
+// Active Elderly Companion System - Edge AI Dashboard
+
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import NotFound from "@/pages/NotFound";
-import { Route, Switch } from "wouter";
-import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import Home from "./pages/Home";
+import { DashboardProvider, useDashboard } from "./contexts/DashboardContext";
+import Sidebar from "./components/Sidebar";
+import TopBar from "./components/TopBar";
+import LiveMonitor from "./pages/LiveMonitor";
+import VitalityIndex from "./pages/VitalityIndex";
+import AlertHistory from "./pages/AlertHistory";
+import CompanionLog from "./pages/CompanionLog";
+import DailyReport from "./pages/DailyReport";
+import StatusFooter from "./components/StatusFooter";
 
+function DashboardContent() {
+  const { currentPage } = useDashboard();
 
-function Router() {
+  const renderPage = () => {
+    switch (currentPage) {
+      case 'live': return <LiveMonitor />;
+      case 'vitality': return <VitalityIndex />;
+      case 'alerts': return <AlertHistory />;
+      case 'companion': return <CompanionLog />;
+      case 'report': return <DailyReport />;
+      default: return <LiveMonitor />;
+    }
+  };
+
   return (
-    <Switch>
-      <Route path={"/"} component={Home} />
-      <Route path={"/404"} component={NotFound} />
-      {/* Final fallback route */}
-      <Route component={NotFound} />
-    </Switch>
+    <div className="flex h-screen overflow-hidden bg-background">
+      <Sidebar />
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <TopBar />
+        <main className="flex-1 overflow-hidden flex flex-col">
+          {renderPage()}
+        </main>
+        <StatusFooter />
+      </div>
+    </div>
   );
 }
 
-// NOTE: About Theme
-// - First choose a default theme according to your design style (dark or light bg), than change color palette in index.css
-//   to keep consistent foreground/background color across components
-// - If you want to make theme switchable, pass `switchable` ThemeProvider and use `useTheme` hook
-
 function App() {
   return (
-    <ErrorBoundary>
-      <ThemeProvider
-        defaultTheme="light"
-        // switchable
-      >
-        <TooltipProvider>
+    <ThemeProvider defaultTheme="light">
+      <TooltipProvider>
+        <DashboardProvider>
+          <DashboardContent />
           <Toaster />
-          <Router />
-        </TooltipProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
+        </DashboardProvider>
+      </TooltipProvider>
+    </ThemeProvider>
   );
 }
 
