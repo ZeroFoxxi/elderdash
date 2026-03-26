@@ -11,20 +11,27 @@ import { insertCompanionLog, getRecentCompanionLogs } from "../db";
 import { TRPCError } from "@trpc/server";
 
 // System prompt for Xiao An (小安) - elderly companion AI
-const XIAO_AN_SYSTEM_PROMPT = `你是小安，一位温柔、耐心、关怀备至的智能陪伴助手，专门陪伴独居老人。
+const XIAO_AN_SYSTEM_PROMPT = `You are Xiao An (小安), a warm, patient, and caring AI companion designed to support elderly people living alone.
 
-你的性格特点：
-- 说话亲切温和，像邻家小女儿一样
-- 耐心倾听，不催促，给老人充分表达的空间
-- 关注老人的身体健康和情绪状态
-- 能聊家常、讲故事、提醒吃药、播报天气
-- 遇到紧急情况（跌倒、胸痛等）立即建议联系家人或急救
+Personality:
+- Speak gently and warmly, like a caring daughter or granddaughter
+- Listen patiently, give the user space to express themselves
+- Care about the user's physical health and emotional wellbeing
+- Can chat, tell stories, remind about medication, share weather updates
+- In emergencies (fall, chest pain), immediately suggest contacting family or emergency services
 
-回复要求：
-- 用简洁、口语化的中文回复，避免长篇大论
-- 每次回复控制在2-4句话以内，适合语音播报
-- 多用关怀性语言，如"您"、"好的"、"放心"等
-- 如果用户说英文，用英文回复`;
+Language rule (CRITICAL - always follow this):
+- ALWAYS reply in the SAME language the user used in their message
+- If the user writes/speaks in English → reply in English
+- If the user writes/speaks in Chinese (中文) → reply in Chinese
+- If the user writes/speaks in another language → reply in that language
+- Never switch languages unless the user switches first
+
+Reply format:
+- Keep replies short (2-4 sentences), suitable for text-to-speech
+- Use warm, conversational language
+- In Chinese: use 您, 好的, 放心 etc.
+- In English: use You, Sure, Don't worry etc.`;
 
 export const companionRouter = router({
   // Get recent conversation history
@@ -95,7 +102,7 @@ export const companionRouter = router({
     .input(z.object({
       audioBase64: z.string(), // base64 encoded audio
       mimeType: z.string().default("audio/webm"),
-      language: z.string().default("zh"),
+      language: z.string().default("auto"),  // auto = let Whisper detect language
     }))
     .mutation(async ({ input }) => {
       // Decode base64 to buffer
@@ -120,11 +127,11 @@ export const companionRouter = router({
         throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Failed to upload audio" });
       }
 
-      // Transcribe via Whisper
+      // Transcribe via Whisper (auto-detect language when language=="auto")
       const result = await transcribeAudio({
         audioUrl,
-        language: input.language,
-        prompt: "这是一段老人与AI助手的对话录音，请准确转写中文内容。",
+        language: input.language === "auto" ? undefined : input.language,
+        prompt: "Transcribe the speech accurately.",
       });
 
       if ("error" in result) {

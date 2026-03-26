@@ -174,7 +174,7 @@ export default function CompanionLog() {
           transcribeMutation.mutate({
             audioBase64: base64,
             mimeType: mimeType.split(';')[0],
-            language: isEnglish ? 'en' : 'zh',
+            language: 'auto',  // Let Whisper auto-detect language
           });
           setIsTranscribing(false);
         };
