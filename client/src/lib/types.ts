@@ -2,23 +2,33 @@
 // Active Elderly Companion System
 
 export interface VitalsData {
-  timestamp: string;
-  radar_hr: number;
-  radar_resp: number;
+  // Heart rate (fused result from radar + PPG)
+  heartRate: number;
+  // Respiration rate from radar
+  respRate: number;
+  // Body movement intensity
   movement: number;
-  fused_hr: number;
-  ppg_hr: number;
-  ppg_spo2: number;
-  ppg_quality: number;
-  ppg_status: 'ACTIVE' | 'NO-SIGNAL' | 'WARMING';
+  // Body Vitality Index
   bvi: number;
-  target_id: 'human' | 'pet' | 'none';
-  fusion_rule: 'RULE1' | 'RULE2' | 'RULE3' | 'RULE4';
+  // PPG sensor data
+  ppgHr?: number;
+  ppgSpo2?: number;
+  ppgSignalQuality?: number;
+  ppgConnected?: boolean;
+  // Raw radar HR
+  radarHr?: number;
+  // Fused HR (same as heartRate, kept for clarity)
+  fusedHr?: number;
+  // Fusion method description
+  fusedMethod?: string;
+  // CA1 target ID
+  targetId?: string;
+  // Alert generated this tick
   alert: AlertData | null;
 }
 
 export interface AlertData {
-  type: 'fall' | 'hr_high' | 'hr_low' | 'spo2_low' | 'bvi_low' | 'nocturnal' | 'FALL DETECTED';
+  type: string;
   severity: 'Critical' | 'Warning' | 'Info';
   message: string;
   message_zh: string;
@@ -34,8 +44,8 @@ export interface BVIDataPoint {
 }
 
 export interface ConversationMessage {
-  id: string;
-  role: 'ai' | 'user' | 'system';
+  id?: string;
+  role: 'ai' | 'user' | 'system' | 'assistant';
   content: string;
   content_zh?: string;
   timestamp: string;
@@ -50,13 +60,3 @@ export interface AgentWorkflowStep {
 }
 
 export type PageType = 'live' | 'vitality' | 'alerts' | 'companion' | 'report';
-
-export interface DemoState {
-  enabled: boolean;
-  baseHr: number;
-  hrPhase: number;
-  respPhase: number;
-  movementPhase: number;
-  bviPhase: number;
-  tick: number;
-}

@@ -1,41 +1,38 @@
-// Guardian Dashboard - Live Vitals Monitor Page
-// Real-time physiological data display with waveform charts
-// Design: Medical-grade dark sidebar + light content, teal accent
+// LiveMonitor.tsx - Real-time physiological data display
+// Data source: WebSocket /ws/live (Jetson pushes via HTTP API → server broadcasts)
 
-import { useState } from 'react';
-import { Heart, Wind, Activity, Zap, GitMerge, Wifi, WifiOff, Settings2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Heart, Wind, Activity, Zap, GitMerge, Wifi, WifiOff } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import { useDashboard } from '../contexts/DashboardContext';
 
-// PPG heart rate display: show -- when 0 or no signal
 function displayPpgHr(ppgHr: number | undefined): string {
   if (ppgHr === undefined || ppgHr === null || ppgHr === 0) return '--';
   return String(Math.round(ppgHr));
 }
 
-function getHrStatus(hr: number | undefined, isEnglish: boolean): { label: string; color: string } {
+function getHrStatus(hr: number | undefined, isEnglish: boolean) {
   if (!hr) return { label: isEnglish ? 'Waiting' : '等待数据', color: 'text-muted-foreground' };
   if (hr < 50) return { label: isEnglish ? 'Low' : '偏低', color: 'text-blue-500' };
   if (hr > 100) return { label: isEnglish ? 'High' : '偏高', color: 'text-red-500' };
   return { label: isEnglish ? 'Normal' : '正常', color: 'text-emerald-500' };
 }
 
-function getRespStatus(resp: number | undefined, isEnglish: boolean): { label: string; color: string } {
+function getRespStatus(resp: number | undefined, isEnglish: boolean) {
   if (!resp) return { label: isEnglish ? 'Waiting' : '等待数据', color: 'text-muted-foreground' };
   if (resp < 12 || resp > 20) return { label: isEnglish ? 'Abnormal' : '异常', color: 'text-amber-500' };
   return { label: isEnglish ? 'Normal' : '正常', color: 'text-emerald-500' };
 }
 
-function getMovementStatus(movement: number | undefined, isEnglish: boolean): { label: string; color: string } {
+function getMovementStatus(movement: number | undefined, isEnglish: boolean) {
   if (movement === undefined) return { label: isEnglish ? 'Waiting' : '等待数据', color: 'text-muted-foreground' };
   if (movement < 1.5) return { label: isEnglish ? 'Still' : '静止', color: 'text-blue-400' };
   if (movement > 5) return { label: isEnglish ? 'Active' : '活跃', color: 'text-emerald-500' };
   return { label: isEnglish ? 'Normal Activity' : '正常活动', color: 'text-teal-500' };
 }
 
-function getBviStatus(bvi: number | undefined, isEnglish: boolean): { label: string; color: string } {
+function getBviStatus(bvi: number | undefined, isEnglish: boolean) {
   if (bvi === undefined) return { label: isEnglish ? 'Waiting' : '等待数据', color: 'text-muted-foreground' };
   if (bvi >= 70) return { label: isEnglish ? 'Active' : '活跃', color: 'text-emerald-500' };
   if (bvi >= 50) return { label: isEnglish ? 'Good' : '良好', color: 'text-teal-500' };
@@ -56,168 +53,43 @@ function getFusionRuleLabel(rule: string | undefined, isEnglish: boolean): strin
 
 export default function LiveMonitor() {
   const {
-    vitals, vitalsHistory, isEnglish, isDemoMode,
-    dataSource, mqttSettings, setMqttSettings, mqttStatus, mqttError,
-    connectMqtt, disconnectMqtt, mqttConnected,
+    vitals, vitalsHistory, isEnglish, isDemoMode, dataSource, realtimeConnected,
   } = useDashboard();
-  const [showMqttConfig, setShowMqttConfig] = useState(false);
-  const [localBroker, setLocalBroker] = useState(mqttSettings.brokerUrl);
-  const [localTopic, setLocalTopic] = useState(mqttSettings.topic);
-  const [localUser, setLocalUser] = useState(mqttSettings.username ?? '');
-  const [localPass, setLocalPass] = useState(mqttSettings.password ?? '');
 
-  const hrStatus = getHrStatus(vitals?.fused_hr, isEnglish);
-  const respStatus = getRespStatus(vitals?.radar_resp, isEnglish);
+  const hrStatus = getHrStatus(vitals?.heartRate, isEnglish);
+  const respStatus = getRespStatus(vitals?.respRate, isEnglish);
   const movStatus = getMovementStatus(vitals?.movement, isEnglish);
   const bviStatus = getBviStatus(vitals?.bvi, isEnglish);
 
-  // Prepare chart data
   const chartData = vitalsHistory.map((v, i) => ({
-    time: new Date(v.timestamp).toLocaleTimeString('en-US', {
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-    }),
-    hr: v.fused_hr,
-    resp: v.radar_resp,
+    time: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }),
+    hr: v.heartRate,
+    resp: v.respRate,
     index: i,
   }));
 
-  const waiting = !vitals;
-
-  // For initial state, show at least one point
   const displayChartData = chartData.length > 0 ? chartData : (
-    isDemoMode && vitals ? [{
-      time: new Date(vitals.timestamp).toLocaleTimeString('en-US', {
-        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-      }),
-      hr: vitals.fused_hr,
-      resp: vitals.radar_resp,
-      index: 0,
-    }] : []
+    vitals ? [{ time: '--:--:--', hr: vitals.heartRate, resp: vitals.respRate, index: 0 }] : []
   );
+
+  const waiting = !vitals;
 
   return (
     <div className="flex-1 overflow-y-auto p-5 space-y-4">
-      {/* MQTT Config Panel */}
-      {dataSource === 'mqtt' && (
+      {/* Realtime Connection Banner */}
+      {dataSource === 'realtime' && (
         <div
-          className="rounded-xl border shadow-sm overflow-hidden"
-          style={{ borderColor: mqttConnected ? 'rgba(16,185,129,0.3)' : mqttStatus === 'error' ? 'rgba(239,68,68,0.3)' : 'var(--border)' }}
+          className="rounded-xl border px-4 py-2.5 flex items-center gap-3"
+          style={{ borderColor: realtimeConnected ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)', backgroundColor: realtimeConnected ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)' }}
         >
-          <button
-            onClick={() => setShowMqttConfig(p => !p)}
-            className="w-full flex items-center justify-between px-4 py-2.5 bg-white hover:bg-muted/30 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              {mqttConnected
-                ? <Wifi size={13} className="text-emerald-500" />
-                : <WifiOff size={13} className="text-muted-foreground" />}
-              <span className="text-xs font-semibold text-foreground">
-                {isEnglish ? 'MQTT Connection' : 'MQTT 实时连接'}
-              </span>
-              <span
-                className="text-[10px] px-2 py-0.5 rounded-full font-medium"
-                style={{
-                  backgroundColor: mqttConnected ? 'rgba(16,185,129,0.1)' : mqttStatus === 'connecting' ? 'rgba(245,158,11,0.1)' : mqttStatus === 'error' ? 'rgba(239,68,68,0.1)' : 'var(--muted)',
-                  color: mqttConnected ? '#10b981' : mqttStatus === 'connecting' ? '#f59e0b' : mqttStatus === 'error' ? '#ef4444' : 'var(--muted-foreground)',
-                }}
-              >
-                {mqttStatus === 'connected' ? (isEnglish ? '● Connected' : '● 已连接')
-                  : mqttStatus === 'connecting' ? (isEnglish ? '◌ Connecting...' : '◌ 连接中...')
-                  : mqttStatus === 'error' ? (isEnglish ? '✕ Error' : '✕ 错误')
-                  : (isEnglish ? '○ Disconnected' : '○ 未连接')}
-              </span>
-              {mqttError && (
-                <span className="text-[10px] text-red-500 truncate max-w-xs">{mqttError}</span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <Settings2 size={12} className="text-muted-foreground" />
-              {showMqttConfig ? <ChevronUp size={12} className="text-muted-foreground" /> : <ChevronDown size={12} className="text-muted-foreground" />}
-            </div>
-          </button>
-
-          {showMqttConfig && (
-            <div className="px-4 py-3 bg-muted/20 border-t border-border space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground block mb-1">
-                    {isEnglish ? 'Broker URL (WebSocket)' : 'Broker 地址 (WebSocket)'}
-                  </label>
-                  <input
-                    type="text"
-                    value={localBroker}
-                    onChange={e => setLocalBroker(e.target.value)}
-                    placeholder="ws://192.168.1.100:9001"
-                    className="w-full text-[11px] px-2.5 py-1.5 rounded border border-border bg-white font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <p className="text-[9px] text-muted-foreground mt-0.5">
-                    {isEnglish ? 'Mosquitto WebSocket port (default 9001)' : 'Mosquitto WebSocket 端口（默认 9001）'}
-                  </p>
-                </div>
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground block mb-1">
-                    {isEnglish ? 'Topic' : 'MQTT 主题'}
-                  </label>
-                  <input
-                    type="text"
-                    value={localTopic}
-                    onChange={e => setLocalTopic(e.target.value)}
-                    placeholder="companion/status"
-                    className="w-full text-[11px] px-2.5 py-1.5 rounded border border-border bg-white font-mono focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground block mb-1">
-                    {isEnglish ? 'Username (optional)' : '用户名（可选）'}
-                  </label>
-                  <input
-                    type="text"
-                    value={localUser}
-                    onChange={e => setLocalUser(e.target.value)}
-                    className="w-full text-[11px] px-2.5 py-1.5 rounded border border-border bg-white focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-medium text-muted-foreground block mb-1">
-                    {isEnglish ? 'Password (optional)' : '密码（可选）'}
-                  </label>
-                  <input
-                    type="password"
-                    value={localPass}
-                    onChange={e => setLocalPass(e.target.value)}
-                    className="w-full text-[11px] px-2.5 py-1.5 rounded border border-border bg-white focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    // Update settings first, then connect with the new values directly
-                    const newSettings = { brokerUrl: localBroker, topic: localTopic, username: localUser || undefined, password: localPass || undefined };
-                    setMqttSettings(newSettings);
-                    // Pass settings directly to avoid async state update issue
-                    connectMqtt(newSettings);
-                  }}
-                  className="px-4 py-1.5 bg-primary text-primary-foreground text-[11px] font-semibold rounded-lg hover:opacity-90 transition-opacity"
-                >
-                  {mqttConnected ? (isEnglish ? 'Reconnect' : '重新连接') : (isEnglish ? 'Connect' : '连接')}
-                </button>
-                {mqttConnected && (
-                  <button
-                    onClick={disconnectMqtt}
-                    className="px-4 py-1.5 bg-red-50 text-red-500 border border-red-200 text-[11px] font-semibold rounded-lg hover:bg-red-100 transition-colors"
-                  >
-                    {isEnglish ? 'Disconnect' : '断开连接'}
-                  </button>
-                )}
-                <span className="text-[10px] text-muted-foreground">
-                  {isEnglish
-                    ? '🔒 Connecting via secure server proxy — no browser HTTPS restriction'
-                    : '🔒 通过后端代理连接，无 HTTPS 限制'}
-                </span>
-              </div>
-            </div>
-          )}
+          {realtimeConnected
+            ? <Wifi size={13} className="text-emerald-500" />
+            : <WifiOff size={13} className="text-red-400" />}
+          <span className="text-xs font-semibold" style={{ color: realtimeConnected ? '#10b981' : '#ef4444' }}>
+            {realtimeConnected
+              ? (isEnglish ? '● Jetson Connected — Receiving real-time data' : '● Jetson 已连接 — 正在接收实时数据')
+              : (isEnglish ? '○ Waiting for Jetson data... Run the Python script on Jetson Nano' : '○ 等待 Jetson 数据... 请在 Jetson Nano 上运行 Python 脚本')}
+          </span>
         </div>
       )}
 
@@ -236,9 +108,9 @@ export default function LiveMonitor() {
               : '数据来源 Data Source: R60ABD1 毫米波雷达 Radar + DFRobot PPG 传感器 Sensor'}
           </p>
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-emerald-500 font-semibold">
-          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot" />
-          {isEnglish ? '· Live' : '· 实时'}
+        <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: isDemoMode ? '#f59e0b' : '#10b981' }}>
+          <div className="w-1.5 h-1.5 rounded-full live-dot" style={{ backgroundColor: isDemoMode ? '#f59e0b' : '#10b981' }} />
+          {isDemoMode ? (isEnglish ? '· Demo' : '· 演示') : (isEnglish ? '· Live' : '· 实时')}
         </div>
       </div>
 
@@ -252,7 +124,7 @@ export default function LiveMonitor() {
           </div>
           <div className="flex items-baseline gap-1 mb-1">
             <span className="text-3xl font-bold text-foreground" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
-              {waiting ? '--' : (vitals?.fused_hr ?? '--')}
+              {waiting ? '--' : Math.round(vitals?.heartRate ?? 0)}
             </span>
             <span className="text-sm text-muted-foreground">bpm</span>
           </div>
@@ -268,7 +140,7 @@ export default function LiveMonitor() {
           </div>
           <div className="flex items-baseline gap-1 mb-1">
             <span className="text-3xl font-bold text-foreground" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
-              {waiting ? '--' : (vitals?.radar_resp ?? '--')}
+              {waiting ? '--' : Math.round(vitals?.respRate ?? 0)}
             </span>
             <span className="text-sm text-muted-foreground">/min</span>
           </div>
@@ -284,7 +156,7 @@ export default function LiveMonitor() {
           </div>
           <div className="flex items-baseline gap-1 mb-1">
             <span className="text-3xl font-bold text-foreground" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
-              {waiting ? '--' : (vitals?.movement ?? '--')}
+              {waiting ? '--' : (vitals?.movement?.toFixed(1) ?? '--')}
             </span>
             <span className="text-sm text-muted-foreground">/10</span>
           </div>
@@ -300,7 +172,7 @@ export default function LiveMonitor() {
           </div>
           <div className="flex items-baseline gap-1 mb-1">
             <span className="text-3xl font-bold text-foreground" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
-              {waiting ? '--' : (vitals?.bvi ?? '--')}
+              {waiting ? '--' : Math.round(vitals?.bvi ?? 0)}
             </span>
             <span className="text-sm text-muted-foreground">BVI</span>
           </div>
@@ -309,179 +181,136 @@ export default function LiveMonitor() {
         </div>
       </div>
 
-      {/* Waveform + Fused HR */}
-      <div className="grid grid-cols-3 gap-3">
-        {/* HR/Resp Waveform - 2/3 width */}
+      {/* Waveform + Fusion Algorithm */}
+      <div className="grid grid-cols-3 gap-4">
+        {/* HR/Resp Waveform */}
         <div className="col-span-2 bg-white rounded-xl p-4 border border-border shadow-sm">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-3">
             <div>
               <div className="flex items-baseline gap-2">
-                <span className="text-sm font-semibold text-foreground">
+                <h3 className="text-sm font-semibold text-foreground">
                   {isEnglish ? 'HR / Resp Waveform' : '心率 / 呼吸率实时波形'}
-                </span>
-                <span className="text-xs text-muted-foreground">HR / Resp Waveform</span>
+                </h3>
+                <span className="text-[10px] text-muted-foreground">HR / Resp Waveform</span>
               </div>
               <p className="text-[10px] text-muted-foreground">{isEnglish ? 'Last 60 seconds' : '最近 60 秒数据'}</p>
             </div>
-            <div className="flex items-center gap-3 text-[11px]">
+            <div className="flex items-center gap-3 text-[10px]">
               <span className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-rose-400" />
-                <span className="text-muted-foreground font-mono">{vitals?.fused_hr ?? '--'} bpm</span>
+                <span className="w-3 h-0.5 bg-rose-400 inline-block rounded" />
+                <span className="text-rose-400 font-mono font-semibold">
+                  {waiting ? '--' : Math.round(vitals?.heartRate ?? 0)} bpm
+                </span>
               </span>
               <span className="flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-teal-400" />
-                <span className="text-muted-foreground font-mono">{vitals?.radar_resp ?? '--'} /min</span>
+                <span className="w-3 h-0.5 bg-emerald-400 inline-block rounded" />
+                <span className="text-emerald-400 font-mono font-semibold">
+                  {waiting ? '--' : Math.round(vitals?.respRate ?? 0)} /min
+                </span>
               </span>
             </div>
           </div>
-
-          <div className="h-40">
+          <div style={{ height: 140 }}>
             {displayChartData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={displayChartData} margin={{ top: 5, right: 5, bottom: 5, left: -25 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <LineChart data={displayChartData} margin={{ top: 5, right: 5, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.05)" />
                   <XAxis
                     dataKey="time"
-                    tick={{ fontSize: 9, fill: '#9ca3af', fontFamily: 'IBM Plex Mono' }}
+                    tick={{ fontSize: 9, fill: '#94a3b8' }}
+                    tickLine={false}
                     interval="preserveStartEnd"
-                    tickLine={false}
                   />
-                  <YAxis
-                    tick={{ fontSize: 9, fill: '#9ca3af' }}
-                    tickLine={false}
-                    axisLine={false}
-                  />
+                  <YAxis tick={{ fontSize: 9, fill: '#94a3b8' }} tickLine={false} domain={[0, 100]} />
                   <Tooltip
-                    contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb', fontFamily: 'IBM Plex Sans' }}
-                    formatter={(val: number, name: string) => [val, name === 'hr' ? 'Heart Rate (bpm)' : 'Resp Rate (/min)']}
+                    contentStyle={{ fontSize: 10, borderRadius: 8, border: '1px solid #e2e8f0' }}
+                    formatter={(val: number, name: string) => [
+                      `${Math.round(val)} ${name === 'hr' ? 'bpm' : '/min'}`,
+                      name === 'hr' ? 'Heart Rate' : 'Resp Rate',
+                    ]}
                   />
-                  <Line
-                    type="monotone"
-                    dataKey="hr"
-                    stroke="#fb7185"
-                    strokeWidth={1.5}
-                    dot={false}
-                    activeDot={{ r: 3, fill: '#fb7185' }}
-                    isAnimationActive={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="resp"
-                    stroke="#2dd4bf"
-                    strokeWidth={1.5}
-                    dot={false}
-                    activeDot={{ r: 3, fill: '#2dd4bf' }}
-                    isAnimationActive={false}
-                  />
+                  <Line type="monotone" dataKey="hr" stroke="#f87171" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="resp" stroke="#34d399" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full flex flex-col items-center justify-center text-muted-foreground/40">
-                <Activity size={22} className="mb-2" />
-                <p className="text-xs">{isEnglish ? 'Waiting for data...' : '等待数据...'}</p>
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
+                {isEnglish ? 'Waiting for data...' : '等待数据...'}
               </div>
             )}
           </div>
-
-          <div className="flex items-center gap-4 mt-1 text-[10px] text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <div className="w-5 h-px" style={{ background: '#fb7185' }} />
-              {isEnglish ? 'Heart Rate' : '心率 HR'}
-            </span>
-            <span className="flex items-center gap-1.5">
-              <div className="w-5 h-px" style={{ background: '#2dd4bf' }} />
-              {isEnglish ? 'Resp. Rate' : '呼吸率 Resp'}
-            </span>
+          <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground">
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-rose-400 inline-block" /> {isEnglish ? 'Heart Rate HR' : '心率 HR'}</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-emerald-400 inline-block" /> {isEnglish ? 'Resp Rate' : '呼吸率 Resp'}</span>
           </div>
         </div>
 
-        {/* Fused HR Algorithm - 1/3 width */}
+        {/* Fused HR Algorithm */}
         <div className="bg-white rounded-xl p-4 border border-border shadow-sm">
-          <div className="flex items-center gap-2 mb-3">
-            <GitMerge size={13} className="text-primary" />
-            <span className="text-sm font-semibold text-foreground">
-              {isEnglish ? 'Fused HR Algorithm' : '融合心率算法'}
-            </span>
+          <div className="flex items-center gap-1.5 mb-3">
+            <GitMerge size={13} className="text-teal-500" />
+            <h3 className="text-sm font-semibold text-foreground">{isEnglish ? 'Fused HR Algorithm' : '融合心率算法'}</h3>
           </div>
-
           <div className="text-center py-3">
-            <div
-              className="text-5xl font-bold text-primary"
-              style={{ fontFamily: "'IBM Plex Mono', monospace" }}
-            >
-              {waiting ? '--' : (vitals?.fused_hr ?? '--')}
+            <div className="text-4xl font-bold text-teal-500" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+              {waiting ? '--' : Math.round(vitals?.fusedHr ?? vitals?.heartRate ?? 0)}
             </div>
-            <div className="flex items-center justify-center gap-1 mt-1 text-xs text-muted-foreground">
-              <span>bpm</span>
-              <span>·</span>
-              <span>{isEnglish ? 'Fused Result' : '融合结果'}</span>
-            </div>
+            <div className="text-[10px] text-muted-foreground mt-1">bpm · {isEnglish ? 'Fused Result' : '融合结果'}</div>
           </div>
-
-          <div className="space-y-2 mt-1">
-            <div className="flex items-center justify-between text-xs">
+          <div className="space-y-2 mt-2">
+            <div className="flex items-center justify-between text-[11px]">
               <span className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-rose-400" />
+                <span className="w-2 h-2 rounded-full bg-rose-400 inline-block" />
                 <span className="text-muted-foreground">Radar (R60ABD1)</span>
               </span>
-              <span className="font-mono font-medium text-foreground text-[11px]">
-                {vitals?.radar_hr ? `${vitals.radar_hr} bpm` : '--'}
+              <span className="font-mono font-semibold text-foreground">
+                {waiting ? '--' : Math.round(vitals?.radarHr ?? 0)} bpm
               </span>
             </div>
-            <div className="flex items-center justify-between text-xs">
+            <div className="flex items-center justify-between text-[11px]">
               <span className="flex items-center gap-1.5">
-                <div className="w-2 h-2 rounded-full bg-pink-400" />
+                <span className="w-2 h-2 rounded-full bg-pink-400 inline-block" />
                 <span className="text-muted-foreground">PPG Sensor (STM32)</span>
               </span>
-              <span className="font-mono font-medium text-foreground text-[11px]">
-                {displayPpgHr(vitals?.ppg_hr)}{vitals?.ppg_hr && vitals.ppg_hr > 0 ? ' bpm' : ''}
+              <span className="font-mono font-semibold text-foreground">
+                {displayPpgHr(vitals?.ppgHr)} bpm
               </span>
             </div>
           </div>
-
           <div className="mt-3 pt-3 border-t border-border">
-            <p className="text-[10px] text-muted-foreground">
-              Method: {getFusionRuleLabel(vitals?.fusion_rule, isEnglish)}
-            </p>
+            <div className="text-[10px] text-muted-foreground">
+              Method: {getFusionRuleLabel(vitals?.fusedMethod, isEnglish)}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Target ID + PPG Sensor */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-4">
         {/* Target ID */}
         <div className="bg-white rounded-xl p-4 border border-border shadow-sm">
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Zap size={13} className="text-primary" />
-              <span className="text-sm font-semibold text-foreground">
-                {isEnglish ? 'Target ID' : '目标识别 Target ID'}
-              </span>
-              <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">(CA1)</span>
+            <div className="flex items-center gap-1.5">
+              <Activity size={13} className="text-teal-500" />
+              <h3 className="text-sm font-semibold text-foreground">{isEnglish ? 'Target ID' : '目标识别'}</h3>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-teal-50 text-teal-600 font-semibold border border-teal-100">CA1</span>
             </div>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold bg-emerald-50 text-emerald-600">
+              {vitals?.targetId === 'None' || !vitals?.targetId ? (isEnglish ? 'No Target' : '无目标') : '● Human'}
+            </span>
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">{isEnglish ? 'Result' : '判定结果'}</span>
-                <span className={`font-semibold ${vitals?.target_id === 'human' ? 'text-emerald-500' : vitals?.target_id === 'pet' ? 'text-amber-500' : 'text-muted-foreground'}`}>
-                  {vitals?.target_id === 'human' ? '● Human' : vitals?.target_id === 'pet' ? '● Pet' : '○ None'}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">{isEnglish ? 'Timestamp' : '时间戳'}</span>
-                <span className="font-mono text-primary text-[11px]">
-                  {vitals ? new Date(vitals.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : '--:--:--'}
-                </span>
-              </div>
+          <div className="space-y-1.5 text-[11px]">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">{isEnglish ? 'Result' : 'Result'}</span>
+              <span className="font-semibold text-foreground">{vitals?.targetId ?? '--'}</span>
             </div>
-            <div className="space-y-2">
-              <div className="text-[10px] text-muted-foreground/60">STM32 Hardware Time Sync</div>
-              <div className="flex items-center gap-1.5 text-[10px] text-emerald-500">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                Voice Alert Active
-              </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Timestamp</span>
+              <span className="font-mono text-teal-500">{new Date().toLocaleTimeString('en-US', { hour12: false })}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">TTS Mode</span>
+              <span className="text-emerald-500">● Voice Alert Active</span>
             </div>
           </div>
         </div>
@@ -489,48 +318,48 @@ export default function LiveMonitor() {
         {/* PPG Sensor */}
         <div className="bg-white rounded-xl p-4 border border-border shadow-sm">
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               <Heart size={13} className="text-pink-400" />
-              <span className="text-sm font-semibold text-foreground">
-                {isEnglish ? 'PPG Sensor' : 'PPG 传感器'}
-              </span>
-              <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">(STM32)</span>
+              <h3 className="text-sm font-semibold text-foreground">{isEnglish ? 'PPG Sensor' : 'PPG 传感器'}</h3>
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-slate-50 text-slate-500 font-semibold border border-slate-100">STM32</span>
             </div>
-            <span className={`text-xs font-semibold flex items-center gap-1 ${vitals?.ppg_status === 'ACTIVE' ? 'text-emerald-500' : 'text-muted-foreground'}`}>
-              {vitals?.ppg_status === 'ACTIVE' && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 live-dot" />}
-              {vitals?.ppg_status === 'ACTIVE' ? 'Connected' : (isEnglish ? 'No Signal' : 'No Signal')}
+            <span
+              className="text-[10px] font-semibold"
+              style={{ color: vitals?.ppgConnected ? '#10b981' : '#94a3b8' }}
+            >
+              {vitals?.ppgConnected ? (isEnglish ? 'Connected' : '已连接') : (isEnglish ? 'Disconnected' : '未连接')}
             </span>
           </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <div className="text-[10px] text-muted-foreground mb-0.5">PPG Heart Rate</div>
-              <div className="text-lg font-bold font-mono text-foreground">
-                {displayPpgHr(vitals?.ppg_hr)}
-                {vitals?.ppg_hr && vitals.ppg_hr > 0 && <span className="text-xs font-normal text-muted-foreground ml-0.5">bpm</span>}
-              </div>
+          <div className="space-y-2 text-[11px]">
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">PPG Heart Rate</span>
+              <span className="font-mono font-bold text-foreground">
+                {displayPpgHr(vitals?.ppgHr)} bpm
+              </span>
             </div>
-            <div>
-              <div className="text-[10px] text-muted-foreground mb-0.5">SpO₂</div>
-              <div className="text-lg font-bold font-mono text-emerald-500">
-                {vitals?.ppg_spo2 ? `${vitals.ppg_spo2}%` : '--'}
-              </div>
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">SpO₂</span>
+              <span className="font-mono font-bold" style={{ color: (vitals?.ppgSpo2 ?? 0) < 95 ? '#ef4444' : '#10b981' }}>
+                {vitals?.ppgSpo2 ? `${vitals.ppgSpo2}%` : '--'}
+              </span>
             </div>
-            <div>
-              <div className="text-[10px] text-muted-foreground mb-0.5">Signal Quality</div>
-              <div className="flex flex-col gap-1">
-                <div className="w-full h-1.5 bg-muted rounded-full overflow-hidden">
+            <div className="flex justify-between items-center">
+              <span className="text-muted-foreground">Signal Quality</span>
+              <div className="flex items-center gap-2">
+                <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
                   <div
-                    className="h-full bg-rose-400 rounded-full transition-all duration-500"
-                    style={{ width: `${vitals?.ppg_quality ?? 0}%` }}
+                    className="h-full rounded-full transition-all"
+                    style={{
+                      width: `${vitals?.ppgSignalQuality ?? 0}%`,
+                      backgroundColor: (vitals?.ppgSignalQuality ?? 0) > 60 ? '#10b981' : '#ef4444',
+                    }}
                   />
                 </div>
-                <span className="text-[10px] text-muted-foreground">{vitals?.ppg_quality ?? '--'}%</span>
+                <span className="font-mono text-xs">{vitals?.ppgSignalQuality ?? 0}%</span>
               </div>
             </div>
           </div>
-
-          <div className="text-[10px] text-muted-foreground/60 mt-2">
+          <div className="mt-2 pt-2 border-t border-border text-[9px] text-muted-foreground">
             Normal: SpO₂ ≥ 95%, HR 60-100 bpm
           </div>
         </div>

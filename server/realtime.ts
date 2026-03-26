@@ -1,0 +1,232 @@
+/**
+ * Guardian Dashboard - Realtime Service
+ *
+ * Architecture:
+ *   Jetson Nano (Python)
+ *     → POST /api/ingest/vitals    (every 5s, with API key)
+ *     → POST /api/ingest/alert     (on event)
+ *     → POST /api/ingest/companion (on AI dialogue)
+ *
+ *   Server
+ *     → Stores to DB
+ *     → Broadcasts to all connected browser WebSocket clients
+ *
+ *   Browser
+ *     → Connects to /ws/live
+ *     → Receives real-time updates
+ */
+
+import { WebSocketServer, WebSocket } from "ws";
+import type { Server } from "http";
+import type { Express } from "express";
+import {
+  insertVitalsSnapshot,
+  insertAlertEvent,
+  insertCompanionLog,
+  getLatestVitals,
+  getVitalsHistory,
+  getRecentAlerts,
+  getRecentCompanionLogs,
+} from "./db";
+
+// ─── API Key ──────────────────────────────────────────────────────────────────
+// Simple shared secret between Jetson and Dashboard
+// In production, rotate this key and store in env
+const INGEST_API_KEY = process.env.JETSON_API_KEY || "guardian-jetson-2024";
+
+// ─── Connected browser clients ────────────────────────────────────────────────
+const browserClients = new Set<WebSocket>();
+
+function broadcast(type: string, data: unknown) {
+  const msg = JSON.stringify({ type, data, ts: Date.now() });
+  for (const client of Array.from(browserClients)) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(msg);
+    }
+  }
+}
+
+// ─── Setup WebSocket server for browsers ─────────────────────────────────────
+export function setupRealtimeServer(httpServer: Server, app: Express) {
+  // WebSocket server for browser clients at /ws/live
+  const wss = new WebSocketServer({ server: httpServer, path: "/ws/live" });
+
+  wss.on("connection", async (ws) => {
+    browserClients.add(ws);
+    console.log(`[Realtime] Browser connected. Total: ${browserClients.size}`);
+
+    // Send initial state on connect
+    try {
+      const [latestVitals, recentAlerts, companionLogs] = await Promise.all([
+        getLatestVitals(),
+        getRecentAlerts(50),
+        getRecentCompanionLogs(30),
+      ]);
+      ws.send(JSON.stringify({
+        type: "init",
+        data: { latestVitals, recentAlerts, companionLogs },
+        ts: Date.now(),
+      }));
+    } catch (err) {
+      console.error("[Realtime] Failed to send init state:", err);
+    }
+
+    ws.on("close", () => {
+      browserClients.delete(ws);
+      console.log(`[Realtime] Browser disconnected. Total: ${browserClients.size}`);
+    });
+
+    ws.on("error", (err) => {
+      console.error("[Realtime] WebSocket error:", err);
+      browserClients.delete(ws);
+    });
+  });
+
+  console.log("[Realtime] Browser WebSocket server ready at /ws/live");
+
+  // ─── HTTP Ingest Endpoints for Jetson ──────────────────────────────────────
+
+  // Middleware: verify API key
+  function verifyApiKey(req: any, res: any, next: any) {
+    const key = req.headers["x-api-key"] || req.body?.apiKey;
+    if (key !== INGEST_API_KEY) {
+      return res.status(401).json({ error: "Invalid API key" });
+    }
+    next();
+  }
+
+  /**
+   * POST /api/ingest/vitals
+   * Called by Jetson every ~5 seconds with sensor readings
+   *
+   * Body: {
+   *   apiKey: string,
+   *   radarHr: number,
+   *   radarRr: number,
+   *   movement: number,
+   *   targetId: string,       // "Human" | "Pet" | "None"
+   *   ppgHr: number,          // 0 if no signal
+   *   ppgSpo2: number,
+   *   ppgSignalQuality: number,
+   *   ppgConnected: boolean,
+   *   fusedHr: number,
+   *   fusedMethod: string,
+   *   bvi: number,
+   *   deviceId?: string
+   * }
+   */
+  app.post("/api/ingest/vitals", verifyApiKey, async (req, res) => {
+    try {
+      const body = req.body;
+      const snapshot = {
+        radarHr: Number(body.radarHr) || null,
+        radarRr: Number(body.radarRr) || null,
+        movement: Number(body.movement) || null,
+        targetId: body.targetId || null,
+        ppgHr: Number(body.ppgHr) || 0,
+        ppgSpo2: Number(body.ppgSpo2) || null,
+        ppgSignalQuality: Number(body.ppgSignalQuality) || null,
+        ppgConnected: Boolean(body.ppgConnected),
+        fusedHr: Number(body.fusedHr) || null,
+        fusedMethod: body.fusedMethod || null,
+        bvi: Number(body.bvi) || null,
+        deviceId: body.deviceId || "jetson-b01",
+        apiKey: INGEST_API_KEY,
+      };
+
+      await insertVitalsSnapshot(snapshot);
+
+      // Broadcast to all connected browsers
+      broadcast("vitals", snapshot);
+
+      res.json({ ok: true, ts: Date.now() });
+    } catch (err) {
+      console.error("[Ingest] vitals error:", err);
+      res.status(500).json({ error: "Failed to store vitals" });
+    }
+  });
+
+  /**
+   * POST /api/ingest/alert
+   * Called by Jetson when an alert event occurs
+   *
+   * Body: {
+   *   apiKey: string,
+   *   alertType: string,   // "fall" | "hr_high" | "hr_low" | "spo2_low" | "bvi_low"
+   *   severity: string,    // "critical" | "warning" | "info"
+   *   message: string,     // English message
+   *   messageZh?: string,  // Chinese message
+   *   deviceId?: string
+   * }
+   */
+  app.post("/api/ingest/alert", verifyApiKey, async (req, res) => {
+    try {
+      const body = req.body;
+      const alert = {
+        alertType: body.alertType || "unknown",
+        severity: (body.severity || "warning") as "critical" | "warning" | "info",
+        message: body.message || "",
+        messageZh: body.messageZh || null,
+        acknowledged: false,
+        deviceId: body.deviceId || "jetson-b01",
+      };
+
+      await insertAlertEvent(alert);
+
+      // Broadcast to all connected browsers
+      broadcast("alert", { ...alert, createdAt: new Date() });
+
+      res.json({ ok: true, ts: Date.now() });
+    } catch (err) {
+      console.error("[Ingest] alert error:", err);
+      res.status(500).json({ error: "Failed to store alert" });
+    }
+  });
+
+  /**
+   * POST /api/ingest/companion
+   * Called by Jetson when AI companion has a dialogue
+   *
+   * Body: {
+   *   apiKey: string,
+   *   role: string,       // "user" | "assistant" | "system"
+   *   content: string,
+   *   logType?: string,   // "chat" | "patrol" | "alert_response"
+   *   deviceId?: string
+   * }
+   */
+  app.post("/api/ingest/companion", verifyApiKey, async (req, res) => {
+    try {
+      const body = req.body;
+      const log = {
+        role: (body.role || "assistant") as "user" | "assistant" | "system",
+        content: body.content || "",
+        logType: body.logType || "chat",
+        deviceId: body.deviceId || "jetson-b01",
+      };
+
+      await insertCompanionLog(log);
+
+      // Broadcast to all connected browsers
+      broadcast("companion", { ...log, createdAt: new Date() });
+
+      res.json({ ok: true, ts: Date.now() });
+    } catch (err) {
+      console.error("[Ingest] companion error:", err);
+      res.status(500).json({ error: "Failed to store companion log" });
+    }
+  });
+
+  /**
+   * GET /api/ingest/status
+   * Health check endpoint - Jetson can ping this to verify connectivity
+   */
+  app.get("/api/ingest/status", (req, res) => {
+    res.json({
+      ok: true,
+      connectedBrowsers: browserClients.size,
+      ts: Date.now(),
+      message: "Guardian Dashboard API is running",
+    });
+  });
+}

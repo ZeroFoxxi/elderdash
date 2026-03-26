@@ -1,6 +1,6 @@
 // Guardian Dashboard - Top Bar
 // Medical-grade dark dashboard style
-// Shows: data source mode, current scenario, MQTT status, demo fall button
+// Shows: data source mode, current scenario, realtime status, demo fall button
 
 import { Wifi, Cloud, AlertTriangle, RefreshCw, WifiOff, Radio } from 'lucide-react';
 import { useDashboard } from '../contexts/DashboardContext';
@@ -12,8 +12,7 @@ export default function TopBar() {
     isDemoMode,
     dataSource,
     demoScenario,
-    mqttStatus,
-    mqttConnected,
+    realtimeConnected,
     triggerDemoFall,
     lastUpdate,
   } = useDashboard();
@@ -75,17 +74,16 @@ export default function TopBar() {
           <div
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
             style={{
-              backgroundColor: mqttConnected ? 'rgba(16,185,129,0.1)' : mqttStatus === 'connecting' ? 'rgba(245,158,11,0.1)' : 'rgba(239,68,68,0.1)',
-              color: mqttConnected ? '#10b981' : mqttStatus === 'connecting' ? '#f59e0b' : '#ef4444',
-              border: `1px solid ${mqttConnected ? 'rgba(16,185,129,0.3)' : mqttStatus === 'connecting' ? 'rgba(245,158,11,0.3)' : 'rgba(239,68,68,0.3)'}`,
+              backgroundColor: realtimeConnected ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+              color: realtimeConnected ? '#10b981' : '#ef4444',
+              border: `1px solid ${realtimeConnected ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
             }}
           >
-            {mqttConnected ? <Radio size={10} /> : <WifiOff size={10} />}
+            {realtimeConnected ? <Radio size={10} /> : <WifiOff size={10} />}
             <span>
-              {mqttStatus === 'connected' ? (isEnglish ? 'Live MQTT' : '实时数据')
-                : mqttStatus === 'connecting' ? (isEnglish ? 'Connecting...' : '连接中...')
-                : mqttStatus === 'error' ? (isEnglish ? 'MQTT Error' : 'MQTT 错误')
-                : (isEnglish ? 'MQTT Off' : 'MQTT 断开')}
+              {realtimeConnected
+                ? (isEnglish ? '● Jetson Live' : '● Jetson 实时')
+                : (isEnglish ? '○ Waiting Jetson' : '○ 等待 Jetson')}
             </span>
           </div>
         )}

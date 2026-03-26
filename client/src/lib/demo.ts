@@ -41,18 +41,18 @@ export function generateDemoVitals(tick: number): VitalsData {
   const bvi = generateDemoBVI(tick);
   
   return {
-    timestamp: new Date().toISOString(),
-    radar_hr: radarHr,
-    radar_resp: generateDemoResp(tick),
+    heartRate: fusedHr,
+    respRate: generateDemoResp(tick),
     movement,
-    fused_hr: fusedHr,
-    ppg_hr: ppgHr,
-    ppg_spo2: 98 + (Math.random() < 0.3 ? 1 : 0),
-    ppg_quality: 70 + Math.round(Math.random() * 25),
-    ppg_status: 'ACTIVE',
     bvi,
-    target_id: 'human',
-    fusion_rule: 'RULE4',
+    ppgHr,
+    ppgSpo2: 98 + (Math.random() < 0.3 ? 1 : 0),
+    ppgSignalQuality: 70 + Math.round(Math.random() * 25),
+    ppgConnected: true,
+    radarHr,
+    fusedHr,
+    fusedMethod: 'RULE4',
+    targetId: 'Human',
     alert: null,
   };
 }

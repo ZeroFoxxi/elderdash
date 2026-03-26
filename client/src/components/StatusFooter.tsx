@@ -5,7 +5,7 @@ import { useDashboard } from '../contexts/DashboardContext';
 import { SCENARIOS } from '../lib/scenarios';
 
 export default function StatusFooter() {
-  const { lastUpdate, isDemoMode, isEnglish, demoScenario, mqttStatus } = useDashboard();
+  const { lastUpdate, isDemoMode, isEnglish, demoScenario, realtimeConnected } = useDashboard();
   const currentScenario = SCENARIOS.find(s => s.id === demoScenario);
 
   return (
@@ -15,7 +15,7 @@ export default function StatusFooter() {
         <span>·</span>
         <span>令狐雅熙</span>
         <span>·</span>
-        <span>v2.5</span>
+        <span>v3.0</span>
         <span>·</span>
         <span>Edge AI</span>
         <span>·</span>
@@ -33,11 +33,11 @@ export default function StatusFooter() {
           <span
             className="flex items-center gap-1 px-1.5 py-0.5 rounded-full font-medium"
             style={{
-              backgroundColor: mqttStatus === 'connected' ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.08)',
-              color: mqttStatus === 'connected' ? '#10b981' : '#ef4444',
+              backgroundColor: realtimeConnected ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.08)',
+              color: realtimeConnected ? '#10b981' : '#ef4444',
             }}
           >
-            {mqttStatus === 'connected' ? '● MQTT Live' : '○ MQTT Off'}
+            {realtimeConnected ? '● Jetson Live' : '○ Waiting Jetson'}
           </span>
         )}
       </div>

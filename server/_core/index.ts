@@ -7,7 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
-import { setupMqttProxy } from "../mqttProxy";
+import { setupRealtimeServer } from "../realtime";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -44,8 +44,8 @@ async function startServer() {
       createContext,
     })
   );
-  // MQTT WebSocket proxy (bridges browser wss:// ↔ Jetson ws://)
-  setupMqttProxy(server);
+  // Realtime: HTTP ingest API + WebSocket broadcast to browsers
+  setupRealtimeServer(server, app);
 
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {

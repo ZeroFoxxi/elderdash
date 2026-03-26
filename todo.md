@@ -29,3 +29,8 @@
 - [ ] BVI历史周/月对比图
 - [ ] Daily Report 使用真实数据生成
 - [x] 修复侧边栏MQTT"配置"按钮点击无响应问题（配置面板现在直接内嵌在侧边栏）
+- [x] 实现后端 HTTP POST API 接收 Jetson 数据（带 API Key 鉴权）
+- [x] 后端 WebSocket 实时推送数据到浏览器
+- [x] 前端通过 WebSocket 接收实时数据替代演示模式
+- [x] 生成 Jetson Python 推送代码片段（jetson_push_data.py）
+- [x] 移除 MQTT 配置面板，改为 Demo/Realtime 双模式切换

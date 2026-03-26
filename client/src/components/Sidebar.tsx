@@ -1,9 +1,9 @@
-// Guardian Dashboard - Sidebar Navigation
+// Guardian Dashboard - Sidebar
 // Dark sidebar with teal accent, medical dashboard style
-// Includes: Data Source Switcher (Demo/MQTT) + Scenario Selector + Inline MQTT Config
+// Includes: Data Source Switcher (Demo/Realtime) + Scenario Selector
 
 import { useState } from 'react';
-import { Activity, BarChart2, Bell, MessageSquare, FileText, Wifi, WifiOff, ChevronDown, ChevronUp, Settings } from 'lucide-react';
+import { Activity, BarChart2, Bell, MessageSquare, FileText, Wifi, WifiOff, ChevronDown, ChevronUp } from 'lucide-react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { SCENARIOS } from '../lib/scenarios';
 import type { PageType } from '../lib/types';
@@ -68,37 +68,12 @@ export default function Sidebar() {
     setDataSource,
     demoScenario,
     setDemoScenario,
-    mqttSettings,
-    setMqttSettings,
-    mqttStatus,
-    mqttConnected,
-    mqttError,
+    realtimeConnected,
     toggleLanguage,
     unackedCount,
-    connectMqtt,
-    disconnectMqtt,
   } = useDashboard();
 
   const [showDataPanel, setShowDataPanel] = useState(false);
-  const [showMqttConfig, setShowMqttConfig] = useState(false);
-  const [localBroker, setLocalBroker] = useState(mqttSettings.brokerUrl);
-  const [localTopic, setLocalTopic] = useState(mqttSettings.topic);
-
-  const mqttStatusColor = mqttStatus === 'connected' ? '#10b981'
-    : mqttStatus === 'connecting' ? '#f59e0b'
-    : mqttStatus === 'error' ? '#ef4444'
-    : 'oklch(0.4 0.01 240)';
-
-  const handleConnect = () => {
-    const newSettings = {
-      brokerUrl: localBroker,
-      topic: localTopic,
-      username: mqttSettings.username,
-      password: mqttSettings.password,
-    };
-    setMqttSettings(newSettings);
-    connectMqtt(newSettings);
-  };
 
   return (
     <aside
@@ -201,24 +176,22 @@ export default function Sidebar() {
           className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-[10px] transition-all"
           style={{
             backgroundColor: showDataPanel ? 'oklch(0.25 0.03 250)' : 'transparent',
-            color: isDemoMode ? 'oklch(0.85 0.12 65)' : mqttConnected ? '#10b981' : 'oklch(0.5 0.01 240)',
-            border: `1px solid ${isDemoMode ? 'oklch(0.7 0.15 65 / 0.3)' : mqttConnected ? 'rgba(16,185,129,0.3)' : 'transparent'}`,
+            color: isDemoMode ? 'oklch(0.85 0.12 65)' : realtimeConnected ? '#10b981' : 'oklch(0.5 0.01 240)',
+            border: `1px solid ${isDemoMode ? 'oklch(0.7 0.15 65 / 0.3)' : realtimeConnected ? 'rgba(16,185,129,0.3)' : 'transparent'}`,
           }}
         >
           {isDemoMode
             ? <div className="w-1.5 h-1.5 rounded-full flex-shrink-0 live-dot" style={{ backgroundColor: 'oklch(0.85 0.12 65)' }} />
-            : mqttConnected
+            : realtimeConnected
               ? <Wifi size={10} className="flex-shrink-0" />
               : <WifiOff size={10} className="flex-shrink-0" />
           }
           <span className="flex-1 text-left truncate">
             {isDemoMode
               ? (isEnglish ? 'Demo Mode' : '演示模式')
-              : mqttStatus === 'connecting'
-                ? (isEnglish ? 'Connecting...' : '连接中...')
-                : mqttConnected
-                  ? (isEnglish ? 'Live MQTT' : '实时数据')
-                  : (isEnglish ? 'MQTT Off' : 'MQTT 断开')}
+              : realtimeConnected
+                ? (isEnglish ? 'Jetson Live' : '实时数据')
+                : (isEnglish ? 'Waiting...' : '等待连接')}
           </span>
           {showDataPanel ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
         </button>
@@ -232,7 +205,7 @@ export default function Sidebar() {
             {/* Mode Tabs */}
             <div className="flex gap-1">
               <button
-                onClick={() => { setDataSource('demo'); setShowMqttConfig(false); }}
+                onClick={() => setDataSource('demo')}
                 className="flex-1 py-1 rounded text-[9px] font-medium transition-all"
                 style={{
                   backgroundColor: isDemoMode ? 'oklch(0.62 0.14 185)' : 'oklch(0.22 0.02 250)',
@@ -242,14 +215,14 @@ export default function Sidebar() {
                 {isEnglish ? 'Demo' : '演示'}
               </button>
               <button
-                onClick={() => { setDataSource('mqtt'); }}
+                onClick={() => setDataSource('realtime')}
                 className="flex-1 py-1 rounded text-[9px] font-medium transition-all"
                 style={{
                   backgroundColor: !isDemoMode ? 'oklch(0.62 0.14 185)' : 'oklch(0.22 0.02 250)',
                   color: !isDemoMode ? 'white' : 'oklch(0.5 0.01 240)',
                 }}
               >
-                MQTT
+                {isEnglish ? 'Realtime' : '实时'}
               </button>
             </div>
 
@@ -277,108 +250,31 @@ export default function Sidebar() {
               </div>
             )}
 
-            {/* MQTT Mode */}
+            {/* Realtime Mode: Connection Status */}
             {!isDemoMode && (
               <div className="space-y-1.5">
-                {/* Status row */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <div
-                      className="w-1.5 h-1.5 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: mqttStatusColor }}
-                    />
-                    <span className="text-[9px]" style={{ color: mqttStatusColor }}>
-                      {mqttStatus === 'connected' ? (isEnglish ? 'Connected' : '已连接')
-                        : mqttStatus === 'connecting' ? (isEnglish ? 'Connecting...' : '连接中...')
-                        : mqttStatus === 'error' ? (isEnglish ? 'Error' : '错误')
-                        : (isEnglish ? 'Disconnected' : '未连接')}
-                    </span>
-                  </div>
-                  {/* Config toggle button */}
-                  <button
-                    onClick={() => setShowMqttConfig(prev => !prev)}
-                    className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] transition-all"
-                    style={{
-                      backgroundColor: showMqttConfig ? 'oklch(0.62 0.14 185 / 0.2)' : 'oklch(0.22 0.02 250)',
-                      color: showMqttConfig ? 'oklch(0.62 0.14 185)' : 'oklch(0.5 0.01 240)',
-                      border: `1px solid ${showMqttConfig ? 'oklch(0.62 0.14 185 / 0.3)' : 'transparent'}`,
-                    }}
-                  >
-                    <Settings size={8} />
-                    <span>{isEnglish ? 'Config' : '配置'}</span>
-                  </button>
+                <div className="flex items-center gap-1.5">
+                  <div
+                    className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: realtimeConnected ? '#10b981' : '#ef4444' }}
+                  />
+                  <span className="text-[9px]" style={{ color: realtimeConnected ? '#10b981' : '#ef4444' }}>
+                    {realtimeConnected
+                      ? (isEnglish ? 'Jetson Connected' : 'Jetson 已连接')
+                      : (isEnglish ? 'Waiting for Jetson' : '等待 Jetson 连接')}
+                  </span>
                 </div>
-
-                {/* Inline MQTT Config Form */}
-                {showMqttConfig && (
-                  <div className="space-y-1.5 pt-1" style={{ borderTop: '1px solid oklch(0.22 0.02 250)' }}>
-                    <div>
-                      <div className="text-[8px] mb-0.5" style={{ color: 'oklch(0.45 0.01 240)' }}>
-                        {isEnglish ? 'Broker (ws://IP:9001)' : 'Broker 地址'}
-                      </div>
-                      <input
-                        type="text"
-                        value={localBroker}
-                        onChange={e => setLocalBroker(e.target.value)}
-                        placeholder="ws://192.168.1.100:9001"
-                        className="w-full text-[9px] px-2 py-1 rounded font-mono focus:outline-none"
-                        style={{
-                          backgroundColor: 'oklch(0.22 0.02 250)',
-                          color: 'oklch(0.85 0.01 240)',
-                          border: '1px solid oklch(0.3 0.02 250)',
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <div className="text-[8px] mb-0.5" style={{ color: 'oklch(0.45 0.01 240)' }}>
-                        {isEnglish ? 'Topic' : '主题'}
-                      </div>
-                      <input
-                        type="text"
-                        value={localTopic}
-                        onChange={e => setLocalTopic(e.target.value)}
-                        placeholder="companion/status"
-                        className="w-full text-[9px] px-2 py-1 rounded font-mono focus:outline-none"
-                        style={{
-                          backgroundColor: 'oklch(0.22 0.02 250)',
-                          color: 'oklch(0.85 0.01 240)',
-                          border: '1px solid oklch(0.3 0.02 250)',
-                        }}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Error message */}
-                {mqttError && !mqttConnected && (
-                  <div className="text-[8px] text-red-400 truncate" title={mqttError}>
-                    {mqttError.length > 40 ? mqttError.slice(0, 40) + '…' : mqttError}
-                  </div>
-                )}
-
-                {/* Connect / Disconnect button */}
-                <button
-                  onClick={() => mqttConnected ? disconnectMqtt() : handleConnect()}
-                  className="w-full py-1 rounded text-[9px] font-medium transition-all"
-                  style={{
-                    backgroundColor: mqttConnected ? 'oklch(0.6 0.22 25 / 0.2)' : 'oklch(0.62 0.14 185 / 0.2)',
-                    color: mqttConnected ? '#ef4444' : 'oklch(0.62 0.14 185)',
-                    border: `1px solid ${mqttConnected ? 'rgba(239,68,68,0.3)' : 'oklch(0.62 0.14 185 / 0.3)'}`,
-                  }}
+                <div className="text-[8px]" style={{ color: 'oklch(0.38 0.01 240)' }}>
+                  {isEnglish
+                    ? 'Run Python script on Jetson to send data'
+                    : '在 Jetson 上运行 Python 脚本发送数据'}
+                </div>
+                <div
+                  className="text-[8px] font-mono px-1.5 py-1 rounded"
+                  style={{ backgroundColor: 'oklch(0.1 0.01 250)', color: 'oklch(0.62 0.14 185)' }}
                 >
-                  {mqttStatus === 'connecting'
-                    ? (isEnglish ? 'Connecting...' : '连接中...')
-                    : mqttConnected
-                      ? (isEnglish ? 'Disconnect' : '断开')
-                      : (isEnglish ? 'Connect' : '连接')}
-                </button>
-
-                {/* Hint */}
-                {!mqttConnected && !showMqttConfig && (
-                  <div className="text-[8px]" style={{ color: 'oklch(0.38 0.01 240)' }}>
-                    {isEnglish ? 'Click Config to set Broker IP' : '点配置填入 Jetson IP'}
-                  </div>
-                )}
+                  POST /api/ingest/vitals
+                </div>
               </div>
             )}
           </div>

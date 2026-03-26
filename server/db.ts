@@ -1,6 +1,6 @@
-import { eq } from "drizzle-orm";
+import { eq, desc, gte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
+import { InsertUser, users, vitalsSnapshots, alertEvents, companionLogs, InsertVitalsSnapshot, InsertAlertEvent, InsertCompanionLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -89,4 +89,75 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+// ─── Vitals Snapshots ───────────────────────────────────────────────────────
+
+export async function insertVitalsSnapshot(data: InsertVitalsSnapshot) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(vitalsSnapshots).values(data);
+}
+
+export async function getLatestVitals() {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(vitalsSnapshots).orderBy(desc(vitalsSnapshots.createdAt)).limit(1);
+  return result[0] ?? null;
+}
+
+export async function getVitalsHistory(hours: number = 1) {
+  const db = await getDb();
+  if (!db) return [];
+  const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+  return db.select().from(vitalsSnapshots)
+    .where(gte(vitalsSnapshots.createdAt, since))
+    .orderBy(desc(vitalsSnapshots.createdAt))
+    .limit(720);
+}
+
+// ─── Alert Events ────────────────────────────────────────────────────────────
+
+export async function insertAlertEvent(data: InsertAlertEvent) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(alertEvents).values(data);
+}
+
+export async function getRecentAlerts(limit: number = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return db.select().from(alertEvents)
+    .where(gte(alertEvents.createdAt, since))
+    .orderBy(desc(alertEvents.createdAt))
+    .limit(limit);
+}
+
+export async function acknowledgeAlert(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(alertEvents).set({ acknowledged: true }).where(eq(alertEvents.id, id));
+}
+
+export async function acknowledgeAllAlerts() {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(alertEvents).set({ acknowledged: true });
+}
+
+// ─── Companion Logs ──────────────────────────────────────────────────────────
+
+export async function insertCompanionLog(data: InsertCompanionLog) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.insert(companionLogs).values(data);
+}
+
+export async function getRecentCompanionLogs(limit: number = 50) {
+  const db = await getDb();
+  if (!db) return [];
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  return db.select().from(companionLogs)
+    .where(gte(companionLogs.createdAt, since))
+    .orderBy(desc(companionLogs.createdAt))
+    .limit(limit);
+}

@@ -1,6 +1,7 @@
 // Guardian Dashboard - Main Data Context
-// Supports: MQTT real-time data + Multi-scenario demo mode
-// MQTT Topic: companion/status | Broker: ws://[jetson-ip]:9001
+// Supports:
+//   - Demo mode: multi-scenario simulation (normal/hr_high/fall/night/spo2_low)
+//   - Realtime mode: WebSocket /ws/live ← data pushed from Jetson via HTTP API
 
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import type { VitalsData, AlertData, BVIDataPoint, ConversationMessage, PageType } from '../lib/types';
@@ -10,16 +11,9 @@ import {
   DEMO_CONVERSATIONS,
 } from '../lib/demo';
 import { ScenarioEngine, type ScenarioType } from '../lib/scenarios';
-import { useMqtt, type MqttConfig, type MqttConnectionStatus } from '../hooks/useMqtt';
+import { useRealtime, type RealtimeVitals, type RealtimeAlert, type RealtimeCompanionLog } from '../hooks/useRealtime';
 
-export type DataSourceMode = 'demo' | 'mqtt';
-
-export interface MqttSettings {
-  brokerUrl: string;
-  topic: string;
-  username?: string;
-  password?: string;
-}
+export type DataSourceMode = 'demo' | 'realtime';
 
 interface DashboardContextType {
   // Navigation
@@ -33,18 +27,12 @@ interface DashboardContextType {
   setDataSource: (mode: DataSourceMode) => void;
 
   // Demo mode
-  isDemoMode: boolean;  // convenience alias: dataSource === 'demo'
+  isDemoMode: boolean;
   demoScenario: ScenarioType;
   setDemoScenario: (s: ScenarioType) => void;
 
-  // MQTT
-  mqttSettings: MqttSettings;
-  setMqttSettings: (s: MqttSettings) => void;
-  mqttStatus: MqttConnectionStatus;
-  mqttConnected: boolean;
-  mqttError: string | null;
-  connectMqtt: (overrideSettings?: MqttSettings) => void;
-  disconnectMqtt: () => void;
+  // Realtime connection status
+  realtimeConnected: boolean;
 
   // Vitals data
   vitals: VitalsData | null;
@@ -65,44 +53,68 @@ interface DashboardContextType {
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
 
-const DEFAULT_MQTT_SETTINGS: MqttSettings = {
-  brokerUrl: 'ws://192.168.1.100:9001',
-  topic: 'companion/status',
-  username: '',
-  password: '',
-};
+// Convert Jetson realtime vitals → internal VitalsData format
+function mapRealtimeVitals(rv: RealtimeVitals): VitalsData {
+  const hr = rv.fusedHr ?? rv.radarHr ?? 0;
+  return {
+    heartRate: hr,
+    respRate: rv.radarRr ?? 0,
+    movement: rv.movement ?? 0,
+    bvi: rv.bvi ?? 0,
+    ppgHr: rv.ppgHr,
+    ppgSpo2: rv.ppgSpo2 ?? 0,
+    ppgSignalQuality: rv.ppgSignalQuality ?? 0,
+    ppgConnected: rv.ppgConnected,
+    radarHr: rv.radarHr ?? 0,
+    fusedHr: rv.fusedHr ?? 0,
+    fusedMethod: rv.fusedMethod ?? 'Radar only',
+    targetId: rv.targetId ?? 'None',
+    alert: null,
+  };
+}
+
+// Convert Jetson alert → internal AlertData format
+function mapRealtimeAlert(ra: RealtimeAlert): AlertData {
+  const ts = new Date(ra.createdAt);
+  const timeStr = `${String(ts.getMonth() + 1).padStart(2, '0')}/${String(ts.getDate()).padStart(2, '0')} ${String(ts.getHours()).padStart(2, '0')}:${String(ts.getMinutes()).padStart(2, '0')}`;
+  const severityMap: Record<string, AlertData['severity']> = {
+    critical: 'Critical',
+    warning: 'Warning',
+    info: 'Info',
+  };
+  return {
+    type: ra.alertType,
+    severity: severityMap[ra.severity] ?? 'Warning',
+    message: ra.message,
+    message_zh: ra.messageZh ?? ra.message,
+    timestamp: timeStr,
+    acknowledged: ra.acknowledged,
+  };
+}
 
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [currentPage, setCurrentPage] = useState<PageType>('live');
   const [isEnglish, setIsEnglish] = useState(false);
   const [dataSource, setDataSourceState] = useState<DataSourceMode>('demo');
   const [demoScenario, setDemoScenarioState] = useState<ScenarioType>('normal');
-  const [mqttSettings, setMqttSettingsState] = useState<MqttSettings>(DEFAULT_MQTT_SETTINGS);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
 
   const [vitals, setVitals] = useState<VitalsData | null>(null);
   const [vitalsHistory, setVitalsHistory] = useState<VitalsData[]>([]);
   const [bviHistory, setBviHistory] = useState<BVIDataPoint[]>(() => generate24hBVIData());
   const [alerts, setAlerts] = useState<AlertData[]>(DEMO_ALERTS);
-  const [conversations] = useState<ConversationMessage[]>(DEMO_CONVERSATIONS);
+  const [conversations, setConversations] = useState<ConversationMessage[]>(DEMO_CONVERSATIONS);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  // Scenario engine (singleton)
   const scenarioEngineRef = useRef<ScenarioEngine>(new ScenarioEngine());
   const demoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // MQTT hook
-  const { status: mqttStatus, lastData: mqttData, lastError: mqttError, connect, disconnect } = useMqtt();
 
   const toggleLanguage = useCallback(() => setIsEnglish(prev => !prev), []);
 
   const setDataSource = useCallback((mode: DataSourceMode) => {
     setDataSourceState(mode);
-    if (mode === 'mqtt') {
-      // Clear demo interval
-      if (demoIntervalRef.current) {
-        clearInterval(demoIntervalRef.current);
-        demoIntervalRef.current = null;
-      }
+    if (mode === 'demo') {
+      if (demoIntervalRef.current) clearInterval(demoIntervalRef.current);
     }
   }, []);
 
@@ -111,62 +123,74 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     scenarioEngineRef.current.setScenario(s);
   }, []);
 
-  const setMqttSettings = useCallback((s: MqttSettings) => {
-    setMqttSettingsState(s);
-  }, []);
-
-  const connectMqtt = useCallback((overrideSettings?: MqttSettings) => {
-    const settings = overrideSettings ?? mqttSettings;
-    const config: MqttConfig = {
-      brokerUrl: settings.brokerUrl,
-      topic: settings.topic,
-      username: settings.username || undefined,
-      password: settings.password || undefined,
-    };
-    connect(config);
-    setDataSourceState('mqtt');
-  }, [mqttSettings, connect]);
-
-  const disconnectMqtt = useCallback(() => {
-    disconnect();
-    setDataSourceState('demo');
-  }, [disconnect]);
-
-  // Handle incoming MQTT data
-  useEffect(() => {
-    if (dataSource === 'mqtt' && mqttData) {
-      setVitals(mqttData);
-      setLastUpdate(new Date());
-      setVitalsHistory(prev => {
-        const updated = [...prev, mqttData];
-        return updated.slice(-60);
-      });
-      // Handle alert from MQTT
-      if (mqttData.alert) {
-        setAlerts(prev => {
-          // Avoid duplicate alerts within 30s
-          const recent = prev[0];
-          if (recent && recent.type === mqttData.alert!.type &&
-              !recent.acknowledged) return prev;
-          return [mqttData.alert!, ...prev];
-        });
+  // ─── Realtime WebSocket ─────────────────────────────────────────────────────
+  useRealtime({
+    onConnect: () => {
+      setRealtimeConnected(true);
+      console.log('[Dashboard] Realtime connected');
+    },
+    onDisconnect: () => {
+      setRealtimeConnected(false);
+    },
+    onInit: (msg) => {
+      // Load initial state from server
+      if (msg.data.latestVitals) {
+        const mapped = mapRealtimeVitals(msg.data.latestVitals);
+        setVitals(mapped);
+        setLastUpdate(new Date());
       }
+      if (msg.data.recentAlerts.length > 0) {
+        const mappedAlerts = msg.data.recentAlerts.map(mapRealtimeAlert);
+        setAlerts(mappedAlerts);
+      }
+      if (msg.data.companionLogs.length > 0) {
+        // Convert companion logs to conversation messages
+        const msgs: ConversationMessage[] = msg.data.companionLogs.map(log => ({
+          role: log.role as 'user' | 'assistant' | 'system',
+          content: log.content,
+          timestamp: new Date(log.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+          type: log.logType as any,
+        }));
+        setConversations(msgs.reverse());
+      }
+    },
+    onVitals: (rv) => {
+      if (dataSource !== 'realtime') return;
+      const mapped = mapRealtimeVitals(rv);
+      setVitals(mapped);
+      setLastUpdate(new Date());
+      setVitalsHistory(prev => [...prev, mapped].slice(-60));
       // Update BVI history
       setBviHistory(prev => {
         const now = new Date();
         const timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-        const newPoint: BVIDataPoint = {
-          time: timeStr,
-          bvi: mqttData.bvi,
-          active: mqttData.bvi >= 40,
-        };
-        const updated = [...prev, newPoint];
-        return updated.slice(-288); // Keep 24h of 5-min points
+        return [...prev, { time: timeStr, bvi: rv.bvi ?? 0, active: (rv.bvi ?? 0) >= 40 }].slice(-288);
       });
-    }
-  }, [mqttData, dataSource]);
+    },
+    onAlert: (ra) => {
+      const mapped = mapRealtimeAlert(ra);
+      setAlerts(prev => {
+        const recent = prev.slice(0, 5).find(a => a.type === mapped.type && !a.acknowledged);
+        if (recent) return prev;
+        return [mapped, ...prev];
+      });
+      // Auto-navigate to alerts page for critical alerts
+      if (ra.severity === 'critical') {
+        setCurrentPage('alerts');
+      }
+    },
+    onCompanion: (log) => {
+      const msg: ConversationMessage = {
+        role: log.role as 'user' | 'assistant' | 'system',
+        content: log.content,
+        timestamp: new Date(log.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        type: log.logType as any,
+      };
+      setConversations(prev => [...prev, msg].slice(-100));
+    },
+  }, true); // Always connect to realtime WebSocket
 
-  // Demo mode data generation
+  // ─── Demo mode data generation ──────────────────────────────────────────────
   useEffect(() => {
     if (dataSource !== 'demo') {
       if (demoIntervalRef.current) {
@@ -179,33 +203,23 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     const engine = scenarioEngineRef.current;
     engine.setScenario(demoScenario);
 
-    // Generate initial data immediately
     const initialVitals = engine.generate();
     setVitals(initialVitals);
     setLastUpdate(new Date());
 
-    // Pre-populate history
     const preHistory: VitalsData[] = [];
     const tempEngine = new ScenarioEngine();
     tempEngine.setScenario('normal');
-    for (let i = 0; i < 20; i++) {
-      preHistory.push(tempEngine.generate());
-    }
+    for (let i = 0; i < 20; i++) preHistory.push(tempEngine.generate());
     setVitalsHistory(preHistory);
 
     demoIntervalRef.current = setInterval(() => {
       const newVitals = engine.generate();
       setVitals(newVitals);
       setLastUpdate(new Date());
-      setVitalsHistory(prev => {
-        const updated = [...prev, newVitals];
-        return updated.slice(-60);
-      });
-      // Handle scenario-generated alerts
+      setVitalsHistory(prev => [...prev, newVitals].slice(-60));
       if (newVitals.alert) {
         setAlerts(prev => {
-          const recent = prev[0];
-          // Deduplicate: same type within last 10 entries
           const recentSame = prev.slice(0, 10).find(a => a.type === newVitals.alert!.type && !a.acknowledged);
           if (recentSame) return prev;
           return [newVitals.alert!, ...prev];
@@ -221,6 +235,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     };
   }, [dataSource, demoScenario]);
 
+  // ─── Alert actions ──────────────────────────────────────────────────────────
   const acknowledgeAlert = useCallback((index: number) => {
     setAlerts(prev => prev.map((a, i) => i === index ? { ...a, acknowledged: true } : a));
   }, []);
@@ -235,16 +250,13 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     const fallAlert: AlertData = {
       type: 'FALL DETECTED',
       severity: 'Critical',
-      message: 'FALL DETECTED — High body movement followed by complete stillness ≥8s (5 consecutive confirmations)',
-      message_zh: '检测到跌倒！高体动后完全静止 ≥8秒（5次连续确认）— 请立即确认老人状态！',
+      message: 'FALL DETECTED — High body movement followed by complete stillness ≥8s',
+      message_zh: '检测到跌倒！高体动后完全静止 ≥8秒 — 请立即确认老人状态！',
       timestamp: ts,
       acknowledged: false,
     };
     setAlerts(prev => [fallAlert, ...prev]);
-    // If in demo mode, switch scenario to fall
-    if (dataSource === 'demo') {
-      setDemoScenario('fall');
-    }
+    if (dataSource === 'demo') setDemoScenario('fall');
     setCurrentPage('alerts');
   }, [dataSource, setDemoScenario]);
 
@@ -261,13 +273,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       isDemoMode: dataSource === 'demo',
       demoScenario,
       setDemoScenario,
-      mqttSettings,
-      setMqttSettings,
-      mqttStatus,
-      mqttConnected: mqttStatus === 'connected',
-      mqttError,
-      connectMqtt,
-      disconnectMqtt,
+      realtimeConnected,
       vitals,
       vitalsHistory,
       bviHistory,
