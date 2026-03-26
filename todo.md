@@ -34,3 +34,10 @@
 - [x] 前端通过 WebSocket 接收实时数据替代演示模式
 - [x] 生成 Jetson Python 推送代码片段（jetson_push_data.py）
 - [x] 移除 MQTT 配置面板，改为 Demo/Realtime 双模式切换
+
+## 新增功能（当前批次）
+- [x] 修复Jetson push_vitals插入（生成正确的sed指令）
+- [x] 升级AI陈伴日志页面为完整语音对话界面（浏览器麦克风录音+Qwen AI回复+TTS播报）
+- [x] 后端新增 /api/trpc 语音对话路由（Qwen调用+对话持久化到DB）
+- [x] 完善每日报告页面（使用真实数据生成AI摘要）
+- [x] 报警页面优化（CA1标注、人宠区分说明）
