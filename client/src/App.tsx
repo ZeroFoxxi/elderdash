@@ -11,8 +11,9 @@ import LiveMonitor from "./pages/LiveMonitor";
 import VitalityIndex from "./pages/VitalityIndex";
 import AlertHistory from "./pages/AlertHistory";
 import CompanionLog from "./pages/CompanionLog";
-import DailyReport from "./pages/DailyReport";
-import StatusFooter from "./components/StatusFooter";
+import DailyReport from './pages/DailyReport';
+import SystemArchitecture from './pages/SystemArchitecture';
+import StatusFooter from './components/StatusFooter';
 
 function DashboardContent() {
   const { currentPage } = useDashboard();
@@ -23,6 +24,7 @@ function DashboardContent() {
       case 'alerts': return <AlertHistory />;
       case 'companion': return <CompanionLog />;
       case 'report': return <DailyReport />;
+      case 'architecture': return <SystemArchitecture />;
       default: return <LiveMonitor />;
     }
   };

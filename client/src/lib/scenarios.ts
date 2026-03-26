@@ -1,10 +1,10 @@
 // Guardian Dashboard - Demo Scenario Engine
 // Simulates realistic multi-scenario vital sign data for demonstration
-// Scenarios: Normal / HR High / Fall / Nocturnal / SpO2 Low
+// Scenarios: Normal / HR High / Fall / Nocturnal / SpO2 Low / BVI Loop (closed-loop demo)
 
 import type { VitalsData, AlertData } from './types';
 
-export type ScenarioType = 'normal' | 'hr_high' | 'fall' | 'nocturnal' | 'spo2_low';
+export type ScenarioType = 'normal' | 'hr_high' | 'fall' | 'nocturnal' | 'spo2_low' | 'bvi_loop';
 
 export interface ScenarioConfig {
   id: ScenarioType;
@@ -15,6 +15,7 @@ export interface ScenarioConfig {
   icon: string;
   color: string;
   duration?: number;
+  isDemo?: boolean;
 }
 
 export const SCENARIOS: ScenarioConfig[] = [
@@ -26,6 +27,16 @@ export const SCENARIOS: ScenarioConfig[] = [
     description_zh: '生理指标稳定，老人活跃',
     icon: '✓',
     color: '#10b981',
+  },
+  {
+    id: 'bvi_loop',
+    label: 'Full Loop Demo',
+    label_zh: '完整闭环演示',
+    description: 'BVI drop → Agent patrol → AI chat → Recovery',
+    description_zh: 'BVI下降→Agent巡检→AI对话→恢复 完整闭环',
+    icon: '⟳',
+    color: '#6366f1',
+    isDemo: true,
   },
   {
     id: 'hr_high',
@@ -75,11 +86,25 @@ function noise(amplitude: number): number {
   return (Math.random() - 0.5) * 2 * amplitude;
 }
 
+// BVI Loop phases for closed-loop demonstration
+// Phase 1 (0-30 ticks):   Normal active state — BVI 70+
+// Phase 2 (30-80 ticks):  Gradual decline — BVI drops to ~25 (sedentary, low activity)
+// Phase 3 (80-100 ticks): Agent triggers patrol — BVI ~25, system detects anomaly
+// Phase 4 (100-140 ticks): AI conversation — BVI starts recovering after interaction
+// Phase 5 (140-200 ticks): Recovery — BVI climbs back to 65+
+// Phase 6 (200+ ticks):   Stable normal — loop restarts
+export type BviLoopPhase = 'active' | 'declining' | 'patrol_triggered' | 'ai_conversing' | 'recovering' | 'stable';
+
 export class ScenarioEngine {
   private tick = 0;
   private scenario: ScenarioType = 'normal';
   private fallPhase = 0;
   private fallTimer = 0;
+
+  // BVI loop state
+  private bviLoopPhase: BviLoopPhase = 'active';
+  private bviLoopTimer = 0;
+  private patrolAlertFired = false;
 
   private currentHR = 75;
   private currentResp = 16;
@@ -94,10 +119,22 @@ export class ScenarioEngine {
       this.fallPhase = 1;
       this.fallTimer = 0;
     }
+    if (s === 'bvi_loop') {
+      this.bviLoopPhase = 'active';
+      this.bviLoopTimer = 0;
+      this.patrolAlertFired = false;
+      this.currentBVI = 72;
+      this.currentHR = 75;
+      this.currentMovement = 3.5;
+    }
   }
 
   getScenario(): ScenarioType {
     return this.scenario;
+  }
+
+  getBviLoopPhase(): BviLoopPhase {
+    return this.bviLoopPhase;
   }
 
   generate(): VitalsData {
@@ -122,6 +159,76 @@ export class ScenarioEngine {
         targetBVI = 65 + Math.sin(this.tick / 200) * 15;
         targetSpo2 = 98 + (Math.random() < 0.2 ? 1 : 0);
         ppgSignalQuality = 80 + Math.round(noise(8));
+        break;
+
+      case 'bvi_loop':
+        this.bviLoopTimer++;
+        if (this.bviLoopTimer > 200) {
+          // Restart loop
+          this.bviLoopPhase = 'active';
+          this.bviLoopTimer = 0;
+          this.patrolAlertFired = false;
+        }
+
+        if (this.bviLoopTimer <= 30) {
+          // Phase 1: Active — normal healthy state
+          this.bviLoopPhase = 'active';
+          targetHR = 76 + Math.sin(this.tick / 60) * 5;
+          targetResp = 16 + Math.sin(this.tick / 45) * 1.5;
+          targetMovement = 3.5 + Math.sin(this.tick / 80) * 1.5;
+          targetBVI = 72 + Math.sin(this.tick / 100) * 8;
+          targetSpo2 = 98;
+          ppgSignalQuality = 85 + Math.round(noise(5));
+        } else if (this.bviLoopTimer <= 80) {
+          // Phase 2: Declining — elderly becomes sedentary
+          this.bviLoopPhase = 'declining';
+          const progress = (this.bviLoopTimer - 30) / 50;
+          targetHR = 72 - progress * 5 + noise(2);
+          targetResp = 15 + noise(1);
+          targetMovement = 3.5 - progress * 3.0 + noise(0.3); // Movement drops
+          targetBVI = 72 - progress * 48; // BVI drops from 72 to ~24
+          targetSpo2 = 97 + (Math.random() < 0.3 ? 1 : 0);
+          ppgSignalQuality = 75 + Math.round(noise(8));
+        } else if (this.bviLoopTimer <= 100) {
+          // Phase 3: Patrol triggered — BVI low, agent detects anomaly
+          this.bviLoopPhase = 'patrol_triggered';
+          targetHR = 67 + noise(3);
+          targetResp = 14 + noise(1);
+          targetMovement = 0.4 + noise(0.2);
+          targetBVI = 24 + noise(3);
+          targetSpo2 = 97;
+          ppgSignalQuality = 72 + Math.round(noise(8));
+          if (!this.patrolAlertFired && this.bviLoopTimer === 85) {
+            this.patrolAlertFired = true;
+            alert = {
+              type: 'bvi_low',
+              severity: 'Warning',
+              message: 'BVI critically low (24/100) — Agent initiating proactive patrol check',
+              message_zh: 'BVI 极低（24/100）— Agent 触发主动巡检问候',
+              timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            };
+          }
+        } else if (this.bviLoopTimer <= 140) {
+          // Phase 4: AI conversing — interaction in progress, slight improvement
+          this.bviLoopPhase = 'ai_conversing';
+          const progress = (this.bviLoopTimer - 100) / 40;
+          targetHR = 68 + progress * 5 + noise(2);
+          targetResp = 14 + progress * 1 + noise(0.5);
+          targetMovement = 0.5 + progress * 1.5 + noise(0.3);
+          targetBVI = 24 + progress * 20; // Slight BVI improvement during conversation
+          targetSpo2 = 97 + (Math.random() < 0.2 ? 1 : 0);
+          ppgSignalQuality = 76 + Math.round(noise(6));
+        } else {
+          // Phase 5 & 6: Recovery → Stable
+          const progress = Math.min(1, (this.bviLoopTimer - 140) / 60);
+          this.bviLoopPhase = progress >= 1 ? 'stable' : 'recovering';
+          targetHR = 73 + progress * 4 + noise(2);
+          targetResp = 15 + progress * 1 + noise(0.5);
+          targetMovement = 2 + progress * 2 + noise(0.5);
+          targetBVI = 44 + progress * 25; // BVI recovers to 65+
+          targetSpo2 = 98;
+          ppgSignalQuality = 80 + Math.round(noise(6));
+        }
         break;
 
       case 'hr_high':

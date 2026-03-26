@@ -59,4 +59,4 @@ export interface AgentWorkflowStep {
   timestamp?: string;
 }
 
-export type PageType = 'live' | 'vitality' | 'alerts' | 'companion' | 'report';
+export type PageType = 'live' | 'vitality' | 'alerts' | 'companion' | 'report' | 'architecture';

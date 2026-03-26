@@ -4,7 +4,7 @@
 // Feature: Quick phrase localization (Chinese/English based on UI language)
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, MicOff, Send, Bot, User, Volume2, VolumeX, Loader2, ChevronDown, ChevronUp, Settings, Trash2 } from 'lucide-react';
+import { Mic, MicOff, Send, Bot, User, Volume2, VolumeX, Loader2, ChevronDown, ChevronUp, Settings, Trash2, CheckCircle2, Circle, AlertTriangle, Clock, Brain, Zap } from 'lucide-react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { trpc } from '../lib/trpc';
 import { toast } from 'sonner';
@@ -90,7 +90,7 @@ export default function CompanionLog() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTtsEnabled, setIsTtsEnabled] = useState(true);
-  const [workflowExpanded, setWorkflowExpanded] = useState(false);
+  const [workflowExpanded, setWorkflowExpanded] = useState(true); // Default expanded
   const [activeTab, setActiveTab] = useState<'chat' | 'history'>('chat');
 
   // Voice recording state
@@ -106,7 +106,27 @@ export default function CompanionLog() {
 
   // ── Localized quick phrases ─────────────────────────────────────────────────
   const quickPhrases = isEnglish ? QUICK_PHRASES_EN : QUICK_PHRASES_ZH;
-  const workflowSteps = isEnglish ? WORKFLOW_STEPS_EN : WORKFLOW_STEPS_ZH;
+
+  // ── Dynamic workflow steps based on current chat state ──────────────────────
+  const dynamicWorkflowSteps = (() => {
+    const isChatting = chatMutation.isPending;
+    const isTtsPlaying = isTtsEnabled && messages.length > 1 && messages[messages.length - 1]?.role === 'assistant';
+    const steps_zh = [
+      { step: '1. 传感器数据采集', detail: '雷达 R60ABD1 + PPG STM32 持续监测', status: 'completed' as const },
+      { step: '2. BVI 活力指数计算', detail: '基于心率、呼吸、体动的综合评分', status: 'completed' as const },
+      { step: '3. 主动巡检触发', detail: 'BVI < 40 或超过1小时未互动时触发', status: 'completed' as const },
+      { step: '4. Qwen AI 生成回复', detail: '云端 Qwen-Turbo 生成关怀性语言', status: isChatting ? 'running' as const : (messages.length > 1 ? 'completed' as const : 'pending' as const) },
+      { step: '5. TTS 语音播报', detail: '本地 pyttsx3 / 云端 Edge-TTS 播放', status: isTtsPlaying && !isChatting ? 'running' as const : (messages.length > 1 && !isChatting ? 'completed' as const : 'pending' as const) },
+    ];
+    const steps_en = [
+      { step: '1. Sensor Data Collection', detail: 'R60ABD1 radar + STM32 PPG continuous monitoring', status: 'completed' as const },
+      { step: '2. BVI Calculation', detail: 'Composite score from HR, respiration, movement', status: 'completed' as const },
+      { step: '3. Proactive Patrol Trigger', detail: 'BVI < 40 or no interaction for 1+ hour', status: 'completed' as const },
+      { step: '4. Qwen AI Response', detail: 'Cloud Qwen-Turbo generates caring language', status: isChatting ? 'running' as const : (messages.length > 1 ? 'completed' as const : 'pending' as const) },
+      { step: '5. TTS Playback', detail: 'Local pyttsx3 / Cloud Edge-TTS', status: isTtsPlaying && !isChatting ? 'running' as const : (messages.length > 1 && !isChatting ? 'completed' as const : 'pending' as const) },
+    ];
+    return isEnglish ? steps_en : steps_zh;
+  })();
 
   // tRPC mutations
   const chatMutation = trpc.companion.chat.useMutation({
@@ -477,57 +497,70 @@ export default function CompanionLog() {
       ) : (
         /* History tab - Jetson conversation logs */
         <div className="flex-1 overflow-y-auto space-y-3 min-h-0">
-          {/* Agent Workflow */}
-          <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
+          {/* Agent Workflow — Dynamic, default expanded */}
+          <div className="bg-white rounded-xl border border-primary/20 shadow-sm overflow-hidden">
             <button
               onClick={() => setWorkflowExpanded(v => !v)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 transition-colors"
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/30 transition-colors"
             >
               <div className="flex items-center gap-2">
-                <Settings size={13} className="text-primary" />
+                <Brain size={13} className="text-primary" />
                 <span className="text-sm font-semibold text-foreground">
                   {isEnglish ? 'Agent Workflow' : 'Agent 工作流程'}
+                </span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold">
+                  {isEnglish ? 'Live' : '实时'}
                 </span>
               </div>
               {workflowExpanded ? <ChevronUp size={13} className="text-muted-foreground" /> : <ChevronDown size={13} className="text-muted-foreground" />}
             </button>
             {workflowExpanded && (
-              <div className="px-4 pb-4 border-t border-border space-y-2 mt-3">
-                {workflowSteps.map((step, i) => (
-                  <div key={i} className="flex items-start gap-3">
-                    <div className="mt-1 flex-shrink-0">
-                      {step.status === 'completed' && (
-                        <div className="w-4 h-4 rounded-full bg-emerald-100 flex items-center justify-center">
-                          <div className="w-2 h-2 rounded-full bg-emerald-500" />
+              <div className="px-4 pb-4 border-t border-border">
+                {/* Pipeline steps */}
+                <div className="relative mt-4">
+                  {/* Vertical connector line */}
+                  <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
+                  <div className="space-y-3">
+                    {dynamicWorkflowSteps.map((step, i) => (
+                      <div key={i} className="flex items-start gap-3 relative">
+                        <div className="mt-0.5 flex-shrink-0 z-10 bg-white">
+                          {step.status === 'completed' && (
+                            <CheckCircle2 size={15} className="text-emerald-500" />
+                          )}
+                          {step.status === 'running' && (
+                            <Loader2 size={15} className="text-primary animate-spin" />
+                          )}
+                          {step.status === 'pending' && (
+                            <Circle size={15} className="text-muted-foreground/30" />
+                          )}
                         </div>
-                      )}
-                      {step.status === 'running' && (
-                        <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center">
-                          <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                        <div className="flex-1">
+                          <p className={`text-xs font-semibold ${
+                            step.status === 'running' ? 'text-primary' :
+                            step.status === 'completed' ? 'text-foreground' : 'text-muted-foreground/50'
+                          }`}>{step.step}</p>
+                          <p className="text-[10px] text-muted-foreground">{step.detail}</p>
                         </div>
-                      )}
-                      {step.status === 'pending' && (
-                        <div className="w-4 h-4 rounded-full bg-muted flex items-center justify-center">
-                          <div className="w-2 h-2 rounded-full bg-muted-foreground/30" />
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <p className={`text-xs font-medium ${step.status === 'pending' ? 'text-muted-foreground' : 'text-foreground'}`}>{step.step}</p>
-                      <p className="text-[10px] text-muted-foreground">{step.detail}</p>
-                    </div>
+                        {step.status === 'running' && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold flex-shrink-0">
+                            {isEnglish ? 'Running' : '执行中'}
+                          </span>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
-                <div className="mt-3 pt-3 border-t border-border grid grid-cols-3 gap-3 text-[10px] text-muted-foreground">
-                  <div><div className="font-medium text-foreground mb-0.5">LLM</div><div>Qwen-Turbo (Cloud)</div></div>
-                  <div><div className="font-medium text-foreground mb-0.5">TTS</div><div>Browser Speech API</div></div>
-                  <div><div className="font-medium text-foreground mb-0.5">STT</div><div>Whisper (Cloud)</div></div>
+                </div>
+                {/* Tech stack */}
+                <div className="mt-4 pt-3 border-t border-border grid grid-cols-3 gap-3 text-[10px] text-muted-foreground">
+                  <div><div className="font-semibold text-foreground mb-0.5">LLM</div><div>Qwen-Turbo</div></div>
+                  <div><div className="font-semibold text-foreground mb-0.5">TTS</div><div>Edge-TTS / Browser</div></div>
+                  <div><div className="font-semibold text-foreground mb-0.5">STT</div><div>Whisper (Cloud)</div></div>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Jetson conversation logs */}
+          {/* Jetson conversation logs with trigger reason badges */}
           <div className="bg-white rounded-xl border border-border shadow-sm">
             {conversations.length === 0 ? (
               <div className="p-10 flex flex-col items-center text-center">
@@ -543,47 +576,72 @@ export default function CompanionLog() {
               </div>
             ) : (
               <div className="divide-y divide-border">
-                {conversations.map((msg, i) => (
-                  <div key={(msg as any).id ?? i} className={`px-4 py-3 ${msg.role === 'system' ? 'bg-muted/30' : ''}`}>
-                    {msg.role === 'system' ? (
-                      <div className="flex items-center gap-2">
-                        <Settings size={10} className="text-muted-foreground" />
-                        <span className="text-[11px] text-muted-foreground italic">
-                          {isEnglish ? msg.content : (msg as any).content_zh ?? msg.content}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground/50 font-mono ml-auto">{msg.timestamp}</span>
-                      </div>
-                    ) : (
-                      <div className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
-                          msg.role === 'ai' || msg.role === 'assistant' ? 'bg-primary/10' : 'bg-muted'
-                        }`}>
-                          {msg.role === 'ai' || msg.role === 'assistant'
-                            ? <Bot size={13} className="text-primary" />
-                            : <User size={13} className="text-muted-foreground" />
-                          }
-                        </div>
-                        <div className={`max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
-                          <div className="flex items-center gap-1.5">
-                            {(msg.role === 'ai' || msg.role === 'assistant') && (
-                              <span className="text-[10px] font-semibold text-primary">
-                                {isEnglish ? 'Xiao An (Jetson)' : '小安（Jetson）'}
-                              </span>
-                            )}
-                            <span className="text-[10px] text-muted-foreground/50 font-mono">{msg.timestamp}</span>
-                          </div>
-                          <div className={`px-3 py-2 rounded-xl text-xs leading-relaxed ${
-                            msg.role === 'ai' || msg.role === 'assistant'
-                              ? 'bg-muted text-foreground rounded-tl-sm'
-                              : 'bg-primary/10 text-foreground rounded-tr-sm'
-                          }`}>
+                {conversations.map((msg, i) => {
+                  // Determine trigger reason badge for patrol/alert_response messages
+                  const triggerBadge = (() => {
+                    if (msg.type === 'patrol') return {
+                      label_zh: 'BVI 触发巡检', label_en: 'BVI Patrol',
+                      icon: <Zap size={9} />, color: 'text-amber-600 bg-amber-50 border-amber-200'
+                    };
+                    if (msg.type === 'alert_response') return {
+                      label_zh: '报警响应', label_en: 'Alert Response',
+                      icon: <AlertTriangle size={9} />, color: 'text-red-600 bg-red-50 border-red-200'
+                    };
+                    if (msg.type === 'nocturnal') return {
+                      label_zh: '夜间巡检', label_en: 'Night Patrol',
+                      icon: <Clock size={9} />, color: 'text-blue-600 bg-blue-50 border-blue-200'
+                    };
+                    return null;
+                  })();
+
+                  return (
+                    <div key={(msg as any).id ?? i} className={`px-4 py-3 ${msg.role === 'system' ? 'bg-muted/30' : ''}`}>
+                      {msg.role === 'system' ? (
+                        <div className="flex items-center gap-2">
+                          <Settings size={10} className="text-muted-foreground" />
+                          <span className="text-[11px] text-muted-foreground italic">
                             {isEnglish ? msg.content : (msg as any).content_zh ?? msg.content}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground/50 font-mono ml-auto">{msg.timestamp}</span>
+                        </div>
+                      ) : (
+                        <div className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
+                            msg.role === 'ai' || msg.role === 'assistant' ? 'bg-primary/10' : 'bg-muted'
+                          }`}>
+                            {msg.role === 'ai' || msg.role === 'assistant'
+                              ? <Bot size={13} className="text-primary" />
+                              : <User size={13} className="text-muted-foreground" />
+                            }
+                          </div>
+                          <div className={`max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              {(msg.role === 'ai' || msg.role === 'assistant') && (
+                                <span className="text-[10px] font-semibold text-primary">
+                                  {isEnglish ? 'Xiao An (Jetson)' : '小安（Jetson）'}
+                                </span>
+                              )}
+                              {triggerBadge && (
+                                <span className={`flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full border font-semibold ${triggerBadge.color}`}>
+                                  {triggerBadge.icon}
+                                  {isEnglish ? triggerBadge.label_en : triggerBadge.label_zh}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-muted-foreground/50 font-mono">{msg.timestamp}</span>
+                            </div>
+                            <div className={`px-3 py-2 rounded-xl text-xs leading-relaxed ${
+                              msg.role === 'ai' || msg.role === 'assistant'
+                                ? 'bg-muted text-foreground rounded-tl-sm'
+                                : 'bg-primary/10 text-foreground rounded-tr-sm'
+                            }`}>
+                              {isEnglish ? msg.content : (msg as any).content_zh ?? msg.content}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

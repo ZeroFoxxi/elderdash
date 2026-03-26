@@ -3,10 +3,10 @@
 // Added: Week/Month historical comparison chart
 
 import { useState, useMemo } from 'react';
-import { TrendingUp, Activity, Clock, Zap, Info, Calendar, BarChart2 } from 'lucide-react';
+import { TrendingUp, Activity, Clock, Zap, Info, Calendar, Bot, AlertTriangle } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
-  BarChart, Bar, Cell, Legend,
+  BarChart, Bar, Cell, Legend, Dot,
 } from 'recharts';
 import { useDashboard } from '../contexts/DashboardContext';
 import { trpc } from '../lib/trpc';
@@ -72,6 +72,37 @@ export default function VitalityIndex() {
 
   // Downsample for chart (every 2nd point for performance)
   const chartData = bviHistory.filter((_, i) => i % 2 === 0);
+
+  // Detect anomaly points (BVI < 40) and Agent intervention points
+  const anomalyPoints = useMemo(() => {
+    const points: { time: string; bvi: number; type: 'low' | 'intervention' }[] = [];
+    let inLowZone = false;
+    chartData.forEach((pt, i) => {
+      if (pt.bvi < 40 && !inLowZone) {
+        inLowZone = true;
+        points.push({ time: pt.time, bvi: pt.bvi, type: 'low' });
+      } else if (pt.bvi >= 40 && inLowZone) {
+        inLowZone = false;
+        // Mark recovery point as Agent intervention
+        if (i > 0) points.push({ time: pt.time, bvi: pt.bvi, type: 'intervention' });
+      }
+    });
+    return points;
+  }, [chartData]);
+
+  // Custom dot renderer for anomaly/intervention markers
+  const CustomDot = (props: any) => {
+    const { cx, cy, payload } = props;
+    const anomaly = anomalyPoints.find(a => a.time === payload.time);
+    if (!anomaly) return null;
+    if (anomaly.type === 'low') {
+      return <circle cx={cx} cy={cy} r={5} fill="#ef4444" stroke="white" strokeWidth={2} />;
+    }
+    if (anomaly.type === 'intervention') {
+      return <circle cx={cx} cy={cy} r={5} fill="#6366f1" stroke="white" strokeWidth={2} />;
+    }
+    return null;
+  };
 
   // Fetch historical BVI data from server
   const days = period === '7d' ? 7 : 30;
@@ -249,14 +280,14 @@ export default function VitalityIndex() {
                 stroke="#14b8a6"
                 strokeWidth={2}
                 fill="url(#bviGrad)"
-                dot={false}
+                dot={<CustomDot />}
                 activeDot={{ r: 3, fill: '#14b8a6' }}
               />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
-        <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-4 mt-2 text-[10px] text-muted-foreground flex-wrap">
           <span className="flex items-center gap-1.5">
             <div className="w-4 h-0.5 bg-teal-400" />
             BVI
@@ -269,7 +300,39 @@ export default function VitalityIndex() {
             <div className="w-4 h-0.5 bg-emerald-400 border-t border-dashed border-emerald-400" />
             {isEnglish ? 'Good threshold 70' : '良好阈值 70'}
           </span>
+          {anomalyPoints.some(a => a.type === 'low') && (
+            <span className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
+              {isEnglish ? 'BVI Low Alert' : 'BVI 低值警报'}
+            </span>
+          )}
+          {anomalyPoints.some(a => a.type === 'intervention') && (
+            <span className="flex items-center gap-1.5">
+              <div className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+              {isEnglish ? 'Agent Intervention' : 'Agent 干预'}
+            </span>
+          )}
         </div>
+        {anomalyPoints.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {anomalyPoints.map((pt, i) => (
+              <div key={i} className={`flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-lg border ${
+                pt.type === 'low'
+                  ? 'bg-red-50 border-red-200 text-red-600'
+                  : 'bg-indigo-50 border-indigo-200 text-indigo-600'
+              }`}>
+                {pt.type === 'low'
+                  ? <AlertTriangle size={9} />
+                  : <Bot size={9} />}
+                <span className="font-mono">{pt.time}</span>
+                <span>{pt.type === 'low'
+                  ? (isEnglish ? `BVI ${pt.bvi} — Low` : `BVI ${pt.bvi} — 偏低`)
+                  : (isEnglish ? `BVI ${pt.bvi} — Agent responded` : `BVI ${pt.bvi} — Agent 已干预`)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── Week / Month Historical Comparison ─────────────────────────────── */}

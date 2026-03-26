@@ -10,7 +10,7 @@ import {
   DEMO_ALERTS,
   DEMO_CONVERSATIONS,
 } from '../lib/demo';
-import { ScenarioEngine, type ScenarioType } from '../lib/scenarios';
+import { ScenarioEngine, type ScenarioType, type BviLoopPhase } from '../lib/scenarios';
 import { trpc } from '../lib/trpc';
 import {
   requestNotificationPermission,
@@ -60,6 +60,9 @@ interface DashboardContextType {
   requestNotifications: () => Promise<void>;
   notificationsEnabled: boolean;
   toggleNotifications: () => void;
+
+  // BVI Loop Phase (for Agent status card)
+  bviLoopPhase: BviLoopPhase;
 }
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
@@ -144,6 +147,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
   const scenarioEngineRef = useRef<ScenarioEngine>(new ScenarioEngine());
+  const [bviLoopPhase, setBviLoopPhase] = useState<BviLoopPhase>('active');
   const demoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSeenTs = useRef<number>(0);
   const prevVitalsRef = useRef<VitalsData | null>(null);
@@ -284,6 +288,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       setVitals(newVitals);
       setLastUpdate(new Date());
       setVitalsHistory(prev => [...prev, newVitals].slice(-60));
+      // Update BVI loop phase for Agent status card
+      if (demoScenario === 'bvi_loop') {
+        setBviLoopPhase(engine.getBviLoopPhase());
+      }
       if (newVitals.alert) {
         setAlerts(prev => {
           const recentSame = prev.slice(0, 10).find(a => a.type === newVitals.alert!.type && !a.acknowledged);
@@ -368,6 +376,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       vitalsHistory,
       bviHistory,
       lastUpdate,
+      bviLoopPhase,
       alerts,
       unackedCount,
       acknowledgeAlert,

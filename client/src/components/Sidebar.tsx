@@ -3,7 +3,7 @@
 // Includes: Data Source Switcher (Demo/Realtime) + Scenario Selector
 
 import { useState } from 'react';
-import { Activity, BarChart2, Bell, MessageSquare, FileText, Wifi, WifiOff, ChevronDown, ChevronUp } from 'lucide-react';
+import { Activity, BarChart2, Bell, MessageSquare, FileText, Wifi, WifiOff, ChevronDown, ChevronUp, Layers } from 'lucide-react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { SCENARIOS } from '../lib/scenarios';
 import type { PageType } from '../lib/types';
@@ -55,6 +55,14 @@ const navItems: {
     label_zh: '每日报告',
     sub: 'Health Summary',
     sub_zh: '健康摘要',
+  },
+  {
+    id: 'architecture',
+    icon: <Layers size={15} />,
+    label: 'Architecture',
+    label_zh: '系统架构',
+    sub: 'Edge AI Pipeline',
+    sub_zh: '边缘AI流程',
   },
 ];
 
