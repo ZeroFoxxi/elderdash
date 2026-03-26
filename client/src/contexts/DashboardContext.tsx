@@ -95,7 +95,7 @@ function mapRealtimeAlert(ra: RealtimeAlert): AlertData {
 export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [currentPage, setCurrentPage] = useState<PageType>('live');
   const [isEnglish, setIsEnglish] = useState(false);
-  const [dataSource, setDataSourceState] = useState<DataSourceMode>('demo');
+  const [dataSource, setDataSourceState] = useState<DataSourceMode>('realtime');  // Default: realtime
   const [demoScenario, setDemoScenarioState] = useState<ScenarioType>('normal');
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const lastVitalsTimeRef = useRef<number>(0);
@@ -156,10 +156,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       }
     },
     onVitals: (rv) => {
-      // Mark as connected whenever we receive vitals data
+      // Mark as connected and auto-switch to realtime whenever we receive vitals data
       lastVitalsTimeRef.current = Date.now();
       setRealtimeConnected(true);
-      if (dataSource !== 'realtime') return;
+      setDataSourceState('realtime');  // Auto-switch to realtime when data arrives
       const mapped = mapRealtimeVitals(rv);
       setVitals(mapped);
       setLastUpdate(new Date());

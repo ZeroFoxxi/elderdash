@@ -77,21 +77,25 @@ export default function LiveMonitor() {
   return (
     <div className="flex-1 overflow-y-auto p-5 space-y-4">
       {/* Realtime Connection Banner */}
-      {dataSource === 'realtime' && (
-        <div
-          className="rounded-xl border px-4 py-2.5 flex items-center gap-3"
-          style={{ borderColor: realtimeConnected ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)', backgroundColor: realtimeConnected ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)' }}
-        >
-          {realtimeConnected
-            ? <Wifi size={13} className="text-emerald-500" />
-            : <WifiOff size={13} className="text-red-400" />}
-          <span className="text-xs font-semibold" style={{ color: realtimeConnected ? '#10b981' : '#ef4444' }}>
-            {realtimeConnected
-              ? (isEnglish ? '● Jetson Connected — Receiving real-time data' : '● Jetson 已连接 — 正在接收实时数据')
-              : (isEnglish ? '○ Waiting for Jetson data... Run the Python script on Jetson Nano' : '○ 等待 Jetson 数据... 请在 Jetson Nano 上运行 Python 脚本')}
-          </span>
-        </div>
-      )}
+      {dataSource === 'realtime' && (() => {
+        const dataFresh = vitals !== null;
+        const isLive = realtimeConnected || dataFresh;
+        return (
+          <div
+            className="rounded-xl border px-4 py-2.5 flex items-center gap-3"
+            style={{ borderColor: isLive ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)', backgroundColor: isLive ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)' }}
+          >
+            {isLive
+              ? <Wifi size={13} className="text-emerald-500" />
+              : <WifiOff size={13} className="text-red-400" />}
+            <span className="text-xs font-semibold" style={{ color: isLive ? '#10b981' : '#ef4444' }}>
+              {isLive
+                ? (isEnglish ? '● Jetson Connected — Receiving real-time data' : '● Jetson 已连接 — 正在接收实时数据')
+                : (isEnglish ? '○ Waiting for Jetson data... Run the Python script on Jetson Nano' : '○ 等待 Jetson 数据... 请在 Jetson Nano 上运行 Python 脚本')}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Page Header */}
       <div className="flex items-center justify-between">

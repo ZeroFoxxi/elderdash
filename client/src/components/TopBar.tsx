@@ -71,21 +71,27 @@ export default function TopBar() {
             </span>
           </div>
         ) : (
-          <div
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
-            style={{
-              backgroundColor: realtimeConnected ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
-              color: realtimeConnected ? '#10b981' : '#ef4444',
-              border: `1px solid ${realtimeConnected ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
-            }}
-          >
-            {realtimeConnected ? <Radio size={10} /> : <WifiOff size={10} />}
-            <span>
-              {realtimeConnected
-                ? (isEnglish ? '● Jetson Live' : '● Jetson 实时')
-                : (isEnglish ? '○ Waiting Jetson' : '○ 等待 Jetson')}
-            </span>
-          </div>
+          (() => {
+            const dataFresh = lastUpdate ? (Date.now() - lastUpdate.getTime()) < 30000 : false;
+            const isLive = realtimeConnected || dataFresh;
+            return (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold"
+                style={{
+                  backgroundColor: isLive ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)',
+                  color: isLive ? '#10b981' : '#ef4444',
+                  border: `1px solid ${isLive ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)'}`,
+                }}
+              >
+                {isLive ? <Radio size={10} /> : <WifiOff size={10} />}
+                <span>
+                  {isLive
+                    ? (isEnglish ? '● Jetson Live' : '● Jetson 实时')
+                    : (isEnglish ? '○ Waiting Jetson' : '○ 等待 Jetson')}
+                </span>
+              </div>
+            );
+          })()
         )}
 
         {/* Last update time */}

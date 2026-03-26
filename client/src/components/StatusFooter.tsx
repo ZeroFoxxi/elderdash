@@ -8,6 +8,10 @@ export default function StatusFooter() {
   const { lastUpdate, isDemoMode, isEnglish, demoScenario, realtimeConnected } = useDashboard();
   const currentScenario = SCENARIOS.find(s => s.id === demoScenario);
 
+  // Consider connected if: WebSocket says connected OR data arrived within last 30 seconds
+  const dataFresh = lastUpdate ? (Date.now() - lastUpdate.getTime()) < 30000 : false;
+  const isLive = realtimeConnected || (!isDemoMode && dataFresh);
+
   return (
     <footer className="h-7 bg-white border-t border-border flex items-center px-6 justify-between flex-shrink-0">
       <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
@@ -33,11 +37,11 @@ export default function StatusFooter() {
           <span
             className="flex items-center gap-1 px-1.5 py-0.5 rounded-full font-medium"
             style={{
-              backgroundColor: realtimeConnected ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.08)',
-              color: realtimeConnected ? '#10b981' : '#ef4444',
+              backgroundColor: isLive ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.08)',
+              color: isLive ? '#10b981' : '#ef4444',
             }}
           >
-            {realtimeConnected ? '● Jetson Live' : '○ Waiting Jetson'}
+            {isLive ? '● Jetson 实时' : '○ 等待 Jetson'}
           </span>
         )}
       </div>
