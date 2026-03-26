@@ -43,7 +43,7 @@ interface DashboardContextType {
   mqttStatus: MqttConnectionStatus;
   mqttConnected: boolean;
   mqttError: string | null;
-  connectMqtt: () => void;
+  connectMqtt: (overrideSettings?: MqttSettings) => void;
   disconnectMqtt: () => void;
 
   // Vitals data
@@ -115,12 +115,13 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     setMqttSettingsState(s);
   }, []);
 
-  const connectMqtt = useCallback(() => {
+  const connectMqtt = useCallback((overrideSettings?: MqttSettings) => {
+    const settings = overrideSettings ?? mqttSettings;
     const config: MqttConfig = {
-      brokerUrl: mqttSettings.brokerUrl,
-      topic: mqttSettings.topic,
-      username: mqttSettings.username || undefined,
-      password: mqttSettings.password || undefined,
+      brokerUrl: settings.brokerUrl,
+      topic: settings.topic,
+      username: settings.username || undefined,
+      password: settings.password || undefined,
     };
     connect(config);
     setDataSourceState('mqtt');

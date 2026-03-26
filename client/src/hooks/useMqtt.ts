@@ -1,9 +1,9 @@
-// Guardian Dashboard - MQTT WebSocket Hook
-// Connects to Jetson Nano MQTT Broker via WebSocket
-// Topic: companion/status | Format: JSON VitalsData
+// Guardian Dashboard - MQTT Hook (via Backend Proxy)
+// Browser connects to our backend via wss:// (secure)
+// Backend connects to Jetson Nano via ws:// (local network)
+// This bypasses the "insecure WebSocket from HTTPS page" browser restriction
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import mqtt, { MqttClient } from 'mqtt';
 import type { VitalsData } from '../lib/types';
 
 export type MqttConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -24,86 +24,133 @@ export interface UseMqttReturn {
   isConnected: boolean;
 }
 
+// Build the proxy URL: same host as the dashboard, /ws/mqtt-proxy path
+function getProxyUrl(): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.host;
+  return `${protocol}//${host}/ws/mqtt-proxy`;
+}
+
 export function useMqtt(): UseMqttReturn {
   const [status, setStatus] = useState<MqttConnectionStatus>('disconnected');
   const [lastData, setLastData] = useState<VitalsData | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
-  const clientRef = useRef<MqttClient | null>(null);
-  const configRef = useRef<MqttConfig | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const pendingConfigRef = useRef<MqttConfig | null>(null);
 
   const disconnect = useCallback(() => {
-    if (clientRef.current) {
-      clientRef.current.end(true);
-      clientRef.current = null;
+    if (wsRef.current) {
+      try {
+        wsRef.current.send(JSON.stringify({ action: 'disconnect' }));
+        wsRef.current.close();
+      } catch { /* ignore */ }
+      wsRef.current = null;
     }
     setStatus('disconnected');
   }, []);
 
   const connect = useCallback((config: MqttConfig) => {
     // Disconnect existing connection
-    if (clientRef.current) {
-      clientRef.current.end(true);
-      clientRef.current = null;
+    if (wsRef.current) {
+      try {
+        wsRef.current.close();
+      } catch { /* ignore */ }
+      wsRef.current = null;
     }
 
-    configRef.current = config;
     setStatus('connecting');
     setLastError(null);
+    pendingConfigRef.current = config;
 
+    const proxyUrl = getProxyUrl();
+    console.log('[MQTT Hook] Connecting via proxy:', proxyUrl, '→', config.brokerUrl);
+
+    let ws: WebSocket;
     try {
-      const client = mqtt.connect(config.brokerUrl, {
+      ws = new WebSocket(proxyUrl);
+    } catch (err) {
+      setStatus('error');
+      setLastError(`Cannot open proxy connection: ${err}`);
+      return;
+    }
+
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      console.log('[MQTT Hook] Proxy WebSocket open, sending connect request...');
+      ws.send(JSON.stringify({
+        action: 'connect',
+        brokerUrl: config.brokerUrl,
+        topic: config.topic,
         username: config.username,
         password: config.password,
-        reconnectPeriod: 5000,
-        connectTimeout: 10000,
-        keepalive: 30,
-        clientId: `guardian-dashboard-${Math.random().toString(16).slice(2, 8)}`,
-      });
+      }));
+    };
 
-      client.on('connect', () => {
-        setStatus('connected');
-        setLastError(null);
-        client.subscribe(config.topic, { qos: 0 }, (err) => {
-          if (err) {
-            setLastError(`Subscribe failed: ${err.message}`);
-          }
-        });
-      });
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data as string);
 
-      client.on('message', (_topic: string, payload: Buffer) => {
-        try {
-          const data = JSON.parse(payload.toString()) as VitalsData;
-          setLastData(data);
-        } catch (e) {
-          console.warn('Failed to parse MQTT message:', e);
+        switch (msg._type) {
+          case 'ready':
+            // Proxy ready - connection request already sent in onopen
+            break;
+
+          case 'connecting':
+            setStatus('connecting');
+            break;
+
+          case 'connected':
+            console.log('[MQTT Hook] MQTT broker connected!');
+            setStatus('connected');
+            setLastError(null);
+            break;
+
+          case 'disconnected':
+            setStatus('disconnected');
+            break;
+
+          case 'reconnecting':
+            setStatus('connecting');
+            break;
+
+          case 'error':
+            console.error('[MQTT Hook] Error:', msg.message);
+            setStatus('error');
+            setLastError(msg.message || 'Unknown MQTT error');
+            break;
+
+          case 'data':
+            if (msg.data) {
+              setLastData(msg.data as VitalsData);
+            }
+            break;
         }
-      });
+      } catch (err) {
+        console.error('[MQTT Hook] Message parse error:', err);
+      }
+    };
 
-      client.on('error', (err: Error) => {
-        setStatus('error');
-        setLastError(err.message);
-      });
-
-      client.on('close', () => {
-        setStatus('disconnected');
-      });
-
-      client.on('reconnect', () => {
-        setStatus('connecting');
-      });
-
-      clientRef.current = client;
-    } catch (e) {
+    ws.onerror = () => {
       setStatus('error');
-      setLastError(e instanceof Error ? e.message : 'Connection failed');
-    }
+      setLastError('Failed to connect to proxy server. Check that the dashboard server is running.');
+    };
+
+    ws.onclose = () => {
+      console.log('[MQTT Hook] Proxy connection closed');
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+        setStatus('disconnected');
+      }
+    };
   }, []);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (clientRef.current) {
-        clientRef.current.end(true);
+      if (wsRef.current) {
+        try { wsRef.current.close(); } catch { /* ignore */ }
+        wsRef.current = null;
       }
     };
   }, []);

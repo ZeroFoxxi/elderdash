@@ -281,7 +281,7 @@ export default function Sidebar() {
                   ws://jetson:9001
                 </div>
                 <button
-                  onClick={mqttConnected ? disconnectMqtt : connectMqtt}
+                  onClick={() => mqttConnected ? disconnectMqtt() : connectMqtt()}
                   className="w-full py-1 rounded text-[9px] font-medium transition-all"
                   style={{
                     backgroundColor: mqttConnected ? 'oklch(0.6 0.22 25 / 0.2)' : 'oklch(0.62 0.14 185 / 0.2)',

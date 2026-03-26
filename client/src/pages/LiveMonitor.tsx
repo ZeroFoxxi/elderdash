@@ -192,8 +192,11 @@ export default function LiveMonitor() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
-                    setMqttSettings({ brokerUrl: localBroker, topic: localTopic, username: localUser || undefined, password: localPass || undefined });
-                    connectMqtt();
+                    // Update settings first, then connect with the new values directly
+                    const newSettings = { brokerUrl: localBroker, topic: localTopic, username: localUser || undefined, password: localPass || undefined };
+                    setMqttSettings(newSettings);
+                    // Pass settings directly to avoid async state update issue
+                    connectMqtt(newSettings);
                   }}
                   className="px-4 py-1.5 bg-primary text-primary-foreground text-[11px] font-semibold rounded-lg hover:opacity-90 transition-opacity"
                 >
@@ -209,8 +212,8 @@ export default function LiveMonitor() {
                 )}
                 <span className="text-[10px] text-muted-foreground">
                   {isEnglish
-                    ? 'Jetson Nano must have Mosquitto with WebSocket enabled (port 9001)'
-                    : 'Jetson Nano 需启用 Mosquitto WebSocket（端口 9001）'}
+                    ? '🔒 Connecting via secure server proxy — no browser HTTPS restriction'
+                    : '🔒 通过后端代理连接，无 HTTPS 限制'}
                 </span>
               </div>
             </div>

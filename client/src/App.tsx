@@ -16,7 +16,6 @@ import StatusFooter from "./components/StatusFooter";
 
 function DashboardContent() {
   const { currentPage } = useDashboard();
-
   const renderPage = () => {
     switch (currentPage) {
       case 'live': return <LiveMonitor />;
@@ -28,6 +27,7 @@ function DashboardContent() {
     }
   };
 
+  // make sure to consider if you need authentication for certain routes
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar />
