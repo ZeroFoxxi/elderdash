@@ -4,6 +4,7 @@ import {
   getLatestVitals,
   getRecentAlerts,
   getRecentCompanionLogs,
+  getBviHistory,
 } from "../db";
 
 /**
@@ -47,5 +48,16 @@ export const realtimeRouter = router({
         companionLogs: newLogs,
         serverTs: Date.now(),
       };
+    }),
+
+  // Get BVI daily summaries for week/month comparison
+  bviHistory: publicProcedure
+    .input(z.object({
+      days: z.number().min(1).max(90).default(7), // 7 = week, 30 = month
+    }).optional())
+    .query(async ({ input }) => {
+      const days = input?.days ?? 7;
+      const summaries = await getBviHistory(days);
+      return { summaries, days };
     }),
 });

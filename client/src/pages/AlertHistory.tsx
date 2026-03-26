@@ -2,9 +2,10 @@
 // CA1 Improvement: Human/Pet Discrimination
 
 import { useState } from 'react';
-import { AlertCircle, AlertTriangle, Info, Check, CheckCheck, Filter, PawPrint } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, Check, CheckCheck, Filter, PawPrint, Bell, BellOff, BellRing } from 'lucide-react';
 import { useDashboard } from '../contexts/DashboardContext';
 import type { AlertData } from '../lib/types';
+import { toast } from 'sonner';
 
 type FilterType = 'all' | 'critical' | 'warning' | 'info';
 
@@ -30,7 +31,10 @@ function getSeverityBadge(severity: AlertData['severity'], isEnglish: boolean) {
 }
 
 export default function AlertHistory() {
-  const { alerts, unackedCount, acknowledgeAlert, acknowledgeAll, isEnglish } = useDashboard();
+  const {
+    alerts, unackedCount, acknowledgeAlert, acknowledgeAll, isEnglish,
+    notificationPermission, requestNotifications, notificationsEnabled, toggleNotifications,
+  } = useDashboard();
   const [filter, setFilter] = useState<FilterType>('all');
   const [showPetFiltered, setShowPetFiltered] = useState(false);
 
@@ -44,21 +48,95 @@ export default function AlertHistory() {
 
   const criticalCount = alerts.filter(a => a.severity === 'Critical').length;
 
+  const handleNotificationToggle = async () => {
+    if (notificationPermission === 'unsupported') {
+      toast.error(isEnglish ? 'Browser notifications not supported' : '您的浏览器不支持桌面通知');
+      return;
+    }
+    if (notificationPermission === 'denied') {
+      toast.error(
+        isEnglish
+          ? 'Notification permission denied. Please enable in browser settings.'
+          : '通知权限已被拒绝，请在浏览器设置中手动开启。'
+      );
+      return;
+    }
+    if (notificationPermission !== 'granted') {
+      await requestNotifications();
+      if (notificationPermission === 'granted') {
+        toast.success(isEnglish ? 'Notifications enabled!' : '桌面通知已开启！');
+      }
+      return;
+    }
+    toggleNotifications();
+    toast.success(
+      notificationsEnabled
+        ? (isEnglish ? 'Notifications disabled' : '通知已关闭')
+        : (isEnglish ? 'Notifications enabled' : '通知已开启')
+    );
+  };
+
+  const notificationButtonLabel = () => {
+    if (notificationPermission === 'unsupported') return isEnglish ? 'Not Supported' : '不支持';
+    if (notificationPermission === 'denied') return isEnglish ? 'Blocked' : '已屏蔽';
+    if (notificationPermission !== 'granted') return isEnglish ? 'Enable Alerts' : '开启通知';
+    return notificationsEnabled
+      ? (isEnglish ? 'Alerts On' : '通知开启')
+      : (isEnglish ? 'Alerts Off' : '通知关闭');
+  };
+
+  const notificationButtonStyle = () => {
+    if (notificationPermission === 'denied' || notificationPermission === 'unsupported') {
+      return 'bg-muted border-border text-muted-foreground cursor-not-allowed';
+    }
+    if (notificationPermission !== 'granted') {
+      return 'bg-amber-50 border-amber-200 text-amber-600 hover:bg-amber-100';
+    }
+    return notificationsEnabled
+      ? 'bg-emerald-50 border-emerald-200 text-emerald-600 hover:bg-emerald-100'
+      : 'bg-white border-border text-muted-foreground hover:bg-muted';
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-5">
       {/* Header */}
-      <div>
-        <div className="flex items-baseline gap-2">
-          <h2 className="text-xl font-semibold text-foreground">
-            {isEnglish ? 'Alert History' : '报警记录'}
-          </h2>
-          <span className="text-sm text-muted-foreground font-normal">Alert History</span>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-xl font-semibold text-foreground">
+              {isEnglish ? 'Alert History' : '报警记录'}
+            </h2>
+            <span className="text-sm text-muted-foreground font-normal">Alert History</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {isEnglish
+              ? 'Fall Detection · Nocturnal Anomaly · Pet Filter'
+              : 'Fall Detection · Nocturnal Anomaly · Pet Filter'}
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          {isEnglish
-            ? 'Fall Detection · Nocturnal Anomaly · Pet Filter'
-            : 'Fall Detection · Nocturnal Anomaly · Pet Filter'}
-        </p>
+
+        {/* Notification permission button */}
+        <button
+          onClick={handleNotificationToggle}
+          disabled={notificationPermission === 'unsupported' || notificationPermission === 'denied'}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${notificationButtonStyle()}`}
+          title={
+            notificationPermission === 'denied'
+              ? (isEnglish ? 'Notification permission denied in browser settings' : '通知权限已在浏览器中被拒绝')
+              : (isEnglish ? 'Toggle desktop alert notifications' : '切换桌面报警通知')
+          }
+        >
+          {notificationPermission === 'denied' || notificationPermission === 'unsupported' ? (
+            <BellOff size={13} />
+          ) : notificationPermission !== 'granted' ? (
+            <BellRing size={13} />
+          ) : notificationsEnabled ? (
+            <Bell size={13} />
+          ) : (
+            <BellOff size={13} />
+          )}
+          {notificationButtonLabel()}
+        </button>
       </div>
 
       {/* CA1 Improvement Banner */}
@@ -71,6 +149,29 @@ export default function AlertHistory() {
             : '系统使用 RCS 能量阈值 + 目标高度双重过滤，自动识别宠物并抑制误报。'}
         </p>
       </div>
+
+      {/* Notification permission prompt */}
+      {notificationPermission === 'default' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-3">
+          <BellRing size={16} className="text-amber-500 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-xs font-medium text-amber-700">
+              {isEnglish ? 'Enable desktop notifications for critical alerts' : '开启桌面通知，及时接收跌倒、心率异常等严重报警'}
+            </p>
+            <p className="text-[11px] text-amber-600 mt-0.5">
+              {isEnglish
+                ? 'Critical alerts (fall, abnormal HR) will show as desktop notifications even when the tab is in background.'
+                : '严重报警（跌倒、心率异常等）将以桌面通知形式弹出，即使标签页在后台也能及时收到。'}
+            </p>
+          </div>
+          <button
+            onClick={requestNotifications}
+            className="flex-shrink-0 px-3 py-1.5 bg-amber-500 text-white rounded-lg text-xs font-medium hover:bg-amber-600 transition-colors"
+          >
+            {isEnglish ? 'Allow' : '允许通知'}
+          </button>
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div className="flex items-center justify-between">

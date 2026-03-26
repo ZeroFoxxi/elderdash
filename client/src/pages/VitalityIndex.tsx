@@ -1,11 +1,15 @@
 // Guardian Dashboard - Behavioral Vitality Index (BVI) Page
 // CA1 Improvement: EVI redesigned as BVI
+// Added: Week/Month historical comparison chart
 
-import { TrendingUp, Activity, Clock, Zap, Info } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { TrendingUp, Activity, Clock, Zap, Info, Calendar, BarChart2 } from 'lucide-react';
 import {
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
+  BarChart, Bar, Cell, Legend,
 } from 'recharts';
 import { useDashboard } from '../contexts/DashboardContext';
+import { trpc } from '../lib/trpc';
 
 const BVI_LEVELS = [
   { range: '70–100', label: 'Active', label_zh: '活跃', color: '#10b981', desc: 'Frequent activity, good condition', desc_zh: '频繁活动，状态良好' },
@@ -21,20 +25,99 @@ function getBviLevel(bvi: number) {
   return BVI_LEVELS[3];
 }
 
+function getBviBarColor(bvi: number): string {
+  if (bvi >= 70) return '#10b981';
+  if (bvi >= 50) return '#14b8a6';
+  if (bvi >= 30) return '#f59e0b';
+  return '#ef4444';
+}
+
+// Generate demo week/month data for when no real data exists
+function generateDemoHistoryData(days: number) {
+  const result = [];
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const hour = d.getDay(); // use day-of-week for variation
+    const base = 55 + Math.sin(i / 3) * 15 + (Math.random() - 0.5) * 10;
+    const avgBvi = Math.min(100, Math.max(10, Math.round(base)));
+    result.push({
+      date: dateKey,
+      avgBvi,
+      peakBvi: Math.min(100, avgBvi + Math.round(Math.random() * 20)),
+      activeMinutes: Math.round(avgBvi * 8 + Math.random() * 60),
+      restingMinutes: Math.round((100 - avgBvi) * 5 + Math.random() * 30),
+      dataPoints: 200 + Math.round(Math.random() * 80),
+    });
+  }
+  return result;
+}
+
+type PeriodType = '7d' | '30d';
+
 export default function VitalityIndex() {
   const { bviHistory, vitals, isEnglish } = useDashboard();
+  const [period, setPeriod] = useState<PeriodType>('7d');
+  const [historyView, setHistoryView] = useState<'avgBvi' | 'activeMinutes'>('avgBvi');
 
   const currentBVI = vitals?.bvi ?? 79;
   const currentLevel = getBviLevel(currentBVI);
 
-  // Summary stats
+  // Summary stats from 24h data
   const avgBVI = Math.round(bviHistory.reduce((s, p) => s + p.bvi, 0) / bviHistory.length);
   const activeTime = bviHistory.filter(p => p.bvi >= 40).length * 5; // 5 min per point
   const restingTime = bviHistory.filter(p => p.bvi < 40).length * 5;
   const peakBVI = Math.max(...bviHistory.map(p => p.bvi));
 
-  // Downsample for chart (every 3rd point for performance)
+  // Downsample for chart (every 2nd point for performance)
   const chartData = bviHistory.filter((_, i) => i % 2 === 0);
+
+  // Fetch historical BVI data from server
+  const days = period === '7d' ? 7 : 30;
+  const { data: bviHistoryData, isLoading: isHistoryLoading } = trpc.realtime.bviHistory.useQuery(
+    { days },
+    { staleTime: 5 * 60 * 1000 } // cache for 5 minutes
+  );
+
+  // Use real data if available, otherwise demo data
+  const historyData = useMemo(() => {
+    if (bviHistoryData?.summaries && bviHistoryData.summaries.length > 0) {
+      return bviHistoryData.summaries;
+    }
+    return generateDemoHistoryData(days);
+  }, [bviHistoryData, days]);
+
+  const isRealHistoryData = bviHistoryData?.summaries && bviHistoryData.summaries.length > 0;
+
+  // Format date label for chart
+  const formatDateLabel = (dateStr: string) => {
+    const d = new Date(dateStr + 'T00:00:00');
+    if (period === '7d') {
+      return d.toLocaleDateString(isEnglish ? 'en-US' : 'zh-CN', { month: 'short', day: 'numeric' });
+    }
+    return d.toLocaleDateString(isEnglish ? 'en-US' : 'zh-CN', { month: 'numeric', day: 'numeric' });
+  };
+
+  // Compute comparison stats
+  const historyAvgBvi = historyData.length > 0
+    ? Math.round(historyData.reduce((s, d) => s + d.avgBvi, 0) / historyData.length)
+    : 0;
+  const historyPeakBvi = historyData.length > 0 ? Math.max(...historyData.map(d => d.peakBvi)) : 0;
+  const historyAvgActiveMin = historyData.length > 0
+    ? Math.round(historyData.reduce((s, d) => s + d.activeMinutes, 0) / historyData.length)
+    : 0;
+
+  // Trend: compare last 3 days vs previous 3 days
+  const trendDiff = useMemo(() => {
+    if (historyData.length < 4) return null;
+    const recent = historyData.slice(-3);
+    const prev = historyData.slice(-6, -3);
+    if (prev.length === 0) return null;
+    const recentAvg = recent.reduce((s, d) => s + d.avgBvi, 0) / recent.length;
+    const prevAvg = prev.reduce((s, d) => s + d.avgBvi, 0) / prev.length;
+    return Math.round(recentAvg - prevAvg);
+  }, [historyData]);
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-5">
@@ -187,6 +270,169 @@ export default function VitalityIndex() {
             {isEnglish ? 'Good threshold 70' : '良好阈值 70'}
           </span>
         </div>
+      </div>
+
+      {/* ── Week / Month Historical Comparison ─────────────────────────────── */}
+      <div className="bg-white rounded-xl p-5 border border-border shadow-sm">
+        {/* Section header with period selector */}
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                <Calendar size={14} className="text-primary" />
+                {isEnglish ? 'Historical Comparison' : '历史趋势对比'}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              {isEnglish ? 'Daily BVI average and activity time comparison' : '每日 BVI 均值与活跃时长对比'}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {/* View toggle */}
+            <div className="flex items-center rounded-lg border border-border overflow-hidden text-xs">
+              <button
+                onClick={() => setHistoryView('avgBvi')}
+                className={`px-2.5 py-1.5 transition-all ${historyView === 'avgBvi' ? 'bg-primary text-primary-foreground' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+              >
+                {isEnglish ? 'BVI' : 'BVI 均值'}
+              </button>
+              <button
+                onClick={() => setHistoryView('activeMinutes')}
+                className={`px-2.5 py-1.5 transition-all ${historyView === 'activeMinutes' ? 'bg-primary text-primary-foreground' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+              >
+                {isEnglish ? 'Active' : '活跃时长'}
+              </button>
+            </div>
+            {/* Period selector */}
+            <div className="flex items-center rounded-lg border border-border overflow-hidden text-xs">
+              <button
+                onClick={() => setPeriod('7d')}
+                className={`px-2.5 py-1.5 transition-all ${period === '7d' ? 'bg-primary text-primary-foreground' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+              >
+                {isEnglish ? '7 Days' : '近7天'}
+              </button>
+              <button
+                onClick={() => setPeriod('30d')}
+                className={`px-2.5 py-1.5 transition-all ${period === '30d' ? 'bg-primary text-primary-foreground' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+              >
+                {isEnglish ? '30 Days' : '近30天'}
+              </button>
+            </div>
+            {!isRealHistoryData && (
+              <span className="text-[10px] text-muted-foreground bg-muted px-2 py-1 rounded">
+                {isEnglish ? 'Demo' : '演示数据'}
+              </span>
+            )}
+            {isRealHistoryData && (
+              <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded">
+                {isEnglish ? 'Real Data' : '真实数据'}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Summary stats for the period */}
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="bg-muted/40 rounded-lg p-3 text-center">
+            <div className="text-lg font-bold font-mono text-amber-500">{historyAvgBvi}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">
+              {isEnglish ? `${days}d Avg BVI` : `${days}天平均 BVI`}
+            </div>
+          </div>
+          <div className="bg-muted/40 rounded-lg p-3 text-center">
+            <div className="text-lg font-bold font-mono text-primary">{historyPeakBvi}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">
+              {isEnglish ? 'Peak BVI' : '峰值 BVI'}
+            </div>
+          </div>
+          <div className="bg-muted/40 rounded-lg p-3 text-center">
+            <div className="flex items-center justify-center gap-1">
+              <span className="text-lg font-bold font-mono text-emerald-500">{historyAvgActiveMin}</span>
+              {trendDiff !== null && (
+                <span className={`text-xs font-medium ${trendDiff >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                  {trendDiff >= 0 ? `↑${trendDiff}` : `↓${Math.abs(trendDiff)}`}
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] text-muted-foreground mt-0.5">
+              {isEnglish ? 'Avg Active min/day' : '日均活跃分钟'}
+            </div>
+          </div>
+        </div>
+
+        {/* Bar chart */}
+        {isHistoryLoading ? (
+          <div className="h-48 flex items-center justify-center">
+            <div className="text-xs text-muted-foreground animate-pulse">
+              {isEnglish ? 'Loading history...' : '加载历史数据中...'}
+            </div>
+          </div>
+        ) : (
+          <div className="h-48">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={historyData.map(d => ({
+                  ...d,
+                  label: formatDateLabel(d.date),
+                }))}
+                margin={{ top: 5, right: 10, bottom: 5, left: -20 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 9, fill: '#9ca3af' }}
+                  tickLine={false}
+                  interval={period === '30d' ? 4 : 0}
+                />
+                <YAxis
+                  domain={historyView === 'avgBvi' ? [0, 100] : [0, 'auto']}
+                  tick={{ fontSize: 9, fill: '#9ca3af' }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={historyView === 'avgBvi' ? undefined : (v) => `${v}m`}
+                />
+                <Tooltip
+                  contentStyle={{ fontSize: 11, borderRadius: 8, border: '1px solid #e5e7eb' }}
+                  formatter={(val: number) => [
+                    historyView === 'avgBvi' ? `${val} / 100` : `${val} min`,
+                    historyView === 'avgBvi'
+                      ? (isEnglish ? 'Avg BVI' : '平均 BVI')
+                      : (isEnglish ? 'Active Time' : '活跃时长'),
+                  ]}
+                  labelFormatter={(label) => `📅 ${label}`}
+                />
+                {historyView === 'avgBvi' && (
+                  <ReferenceLine y={50} stroke="#f59e0b" strokeDasharray="4 4" strokeWidth={1} />
+                )}
+                <Bar
+                  dataKey={historyView}
+                  radius={[3, 3, 0, 0]}
+                  maxBarSize={period === '30d' ? 16 : 32}
+                >
+                  {historyData.map((entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={historyView === 'avgBvi' ? getBviBarColor(entry.avgBvi) : '#14b8a6'}
+                      fillOpacity={0.85}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* Legend */}
+        {historyView === 'avgBvi' && (
+          <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground flex-wrap">
+            {BVI_LEVELS.map(level => (
+              <span key={level.label} className="flex items-center gap-1">
+                <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: level.color }} />
+                {isEnglish ? level.label : level.label_zh} ({level.range})
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Current BVI Status + BVI Level Guide */}

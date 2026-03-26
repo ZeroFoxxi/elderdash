@@ -12,6 +12,11 @@ import {
 } from '../lib/demo';
 import { ScenarioEngine, type ScenarioType } from '../lib/scenarios';
 import { trpc } from '../lib/trpc';
+import {
+  requestNotificationPermission,
+  sendAlertNotification,
+  getNotificationPermission,
+} from '../lib/notifications';
 
 export type DataSourceMode = 'demo' | 'realtime';
 
@@ -49,6 +54,12 @@ interface DashboardContextType {
 
   // Conversations
   conversations: ConversationMessage[];
+
+  // Browser Notifications
+  notificationPermission: NotificationPermission | 'unsupported';
+  requestNotifications: () => Promise<void>;
+  notificationsEnabled: boolean;
+  toggleNotifications: () => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | null>(null);
@@ -70,15 +81,16 @@ function mapDbVitals(row: {
   const hr = row.fusedHr ?? row.radarHr ?? 0;
   return {
     heartRate: hr,
-    respRate: row.radarRr ?? 0,
-    movement: row.movement ?? 0,
-    bvi: row.bvi ?? 0,
-    ppgHr: row.ppgHr ?? 0,
-    ppgSpo2: row.ppgSpo2 ?? 0,
-    ppgSignalQuality: row.ppgSignalQuality ?? 0,
-    ppgConnected: row.ppgConnected ?? false,
-    radarHr: row.radarHr ?? 0,
-    fusedHr: row.fusedHr ?? 0,
+    // Use null-coalescing (not ||) to preserve legitimate 0 values
+    respRate: row.radarRr !== null ? row.radarRr : 0,
+    movement: row.movement !== null ? row.movement : 0,
+    bvi: row.bvi !== null ? row.bvi : 0,
+    ppgHr: row.ppgHr !== null ? row.ppgHr : 0,
+    ppgSpo2: row.ppgSpo2 !== null ? row.ppgSpo2 : 0,
+    ppgSignalQuality: row.ppgSignalQuality !== null ? row.ppgSignalQuality : 0,
+    ppgConnected: row.ppgConnected !== null ? row.ppgConnected : false,
+    radarHr: row.radarHr !== null ? row.radarHr : 0,
+    fusedHr: row.fusedHr !== null ? row.fusedHr : 0,
     fusedMethod: row.fusedMethod ?? 'Radar only',
     targetId: row.targetId ?? 'None',
     alert: null,
@@ -125,10 +137,18 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [conversations, setConversations] = useState<ConversationMessage[]>(DEMO_CONVERSATIONS);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
+  // ─── Browser Notification State ─────────────────────────────────────────────
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(
+    () => getNotificationPermission()
+  );
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+
   const scenarioEngineRef = useRef<ScenarioEngine>(new ScenarioEngine());
   const demoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastSeenTs = useRef<number>(0);
   const prevVitalsRef = useRef<VitalsData | null>(null);
+  // Track last seen alert count to detect truly new alerts
+  const lastAlertCountRef = useRef<number>(0);
 
   const toggleLanguage = useCallback(() => setIsEnglish(prev => !prev), []);
 
@@ -142,6 +162,16 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const setDemoScenario = useCallback((s: ScenarioType) => {
     setDemoScenarioState(s);
     scenarioEngineRef.current.setScenario(s);
+  }, []);
+
+  // ─── Notification helpers ────────────────────────────────────────────────────
+  const requestNotifications = useCallback(async () => {
+    const perm = await requestNotificationPermission();
+    setNotificationPermission(perm);
+  }, []);
+
+  const toggleNotifications = useCallback(() => {
+    setNotificationsEnabled(prev => !prev);
   }, []);
 
   // ─── tRPC Polling (replaces WebSocket) ─────────────────────────────────────
@@ -191,6 +221,19 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         const existingTypes = new Set(prev.slice(0, 20).map(a => `${a.type}-${a.timestamp}`));
         const truly_new = mappedAlerts.filter(a => !existingTypes.has(`${a.type}-${a.timestamp}`));
         if (truly_new.length === 0) return prev;
+
+        // ── Browser Notifications for truly new alerts ──────────────────────
+        if (notificationsEnabled) {
+          truly_new.forEach(alert => {
+            sendAlertNotification({
+              alertType: alert.type,
+              severity: alert.severity,
+              message: isEnglish ? alert.message : alert.message_zh,
+              isEnglish,
+            });
+          });
+        }
+
         // Auto-navigate to alerts for critical
         const hasCritical = truly_new.some(a => a.severity === 'Critical');
         if (hasCritical) setCurrentPage('alerts');
@@ -211,7 +254,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
 
     // Update lastSeenTs for delta polling
     lastSeenTs.current = serverTs;
-  }, [pollData]);
+  }, [pollData, notificationsEnabled, isEnglish]);
 
   // ─── Demo mode data generation ──────────────────────────────────────────────
   useEffect(() => {
@@ -245,6 +288,17 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         setAlerts(prev => {
           const recentSame = prev.slice(0, 10).find(a => a.type === newVitals.alert!.type && !a.acknowledged);
           if (recentSame) return prev;
+
+          // ── Browser Notifications for demo alerts ──────────────────────────
+          if (notificationsEnabled) {
+            sendAlertNotification({
+              alertType: newVitals.alert!.type,
+              severity: newVitals.alert!.severity,
+              message: isEnglish ? newVitals.alert!.message : newVitals.alert!.message_zh,
+              isEnglish,
+            });
+          }
+
           return [newVitals.alert!, ...prev];
         });
       }
@@ -256,7 +310,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
         demoIntervalRef.current = null;
       }
     };
-  }, [dataSource, demoScenario]);
+  }, [dataSource, demoScenario, notificationsEnabled, isEnglish]);
 
   // ─── Alert actions ──────────────────────────────────────────────────────────
   const acknowledgeAlert = useCallback((index: number) => {
@@ -279,9 +333,22 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       acknowledged: false,
     };
     setAlerts(prev => [fallAlert, ...prev]);
+
+    // Send browser notification for demo fall
+    if (notificationsEnabled) {
+      sendAlertNotification({
+        alertType: 'FALL DETECTED',
+        severity: 'Critical',
+        message: isEnglish
+          ? 'FALL DETECTED — High body movement followed by complete stillness ≥8s'
+          : '检测到跌倒！高体动后完全静止 ≥8秒 — 请立即确认老人状态！',
+        isEnglish,
+      });
+    }
+
     if (dataSource === 'demo') setDemoScenario('fall');
     setCurrentPage('alerts');
-  }, [dataSource, setDemoScenario]);
+  }, [dataSource, setDemoScenario, notificationsEnabled, isEnglish]);
 
   const unackedCount = alerts.filter(a => !a.acknowledged).length;
 
@@ -307,6 +374,10 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       acknowledgeAll,
       triggerDemoFall,
       conversations,
+      notificationPermission,
+      requestNotifications,
+      notificationsEnabled,
+      toggleNotifications,
     }}>
       {children}
     </DashboardContext.Provider>

@@ -118,19 +118,26 @@ export function setupRealtimeServer(httpServer: Server, app: Express) {
   app.post("/api/ingest/vitals", verifyApiKey, async (req, res) => {
     try {
       const body = req.body;
+      // Helper: parse number, returning null only if truly missing (not if 0)
+      const parseNum = (v: unknown): number | null => {
+        if (v === undefined || v === null || v === '') return null;
+        const n = Number(v);
+        return isNaN(n) ? null : n;
+      };
+
       const snapshot = {
-        radarHr: Number(body.radarHr) || null,
-        radarRr: Number(body.radarRr) || null,
-        movement: Number(body.movement) || null,
-        targetId: body.targetId || null,
-        ppgHr: Number(body.ppgHr) || 0,
-        ppgSpo2: Number(body.ppgSpo2) || null,
-        ppgSignalQuality: Number(body.ppgSignalQuality) || null,
-        ppgConnected: Boolean(body.ppgConnected),
-        fusedHr: Number(body.fusedHr) || null,
-        fusedMethod: body.fusedMethod || null,
-        bvi: Number(body.bvi) || null,
-        deviceId: body.deviceId || "jetson-b01",
+        radarHr: parseNum(body.radarHr),
+        radarRr: parseNum(body.radarRr),          // Fix: was || null, now preserves 0
+        movement: parseNum(body.movement),         // Fix: was || null, now preserves 0.0
+        targetId: body.targetId ?? null,           // Fix: was || null, now preserves 'None'
+        ppgHr: parseNum(body.ppgHr) ?? 0,
+        ppgSpo2: parseNum(body.ppgSpo2),
+        ppgSignalQuality: parseNum(body.ppgSignalQuality),
+        ppgConnected: body.ppgConnected === true || body.ppgConnected === 'true' || body.ppgConnected === 1,
+        fusedHr: parseNum(body.fusedHr),
+        fusedMethod: body.fusedMethod ?? null,
+        bvi: parseNum(body.bvi),
+        deviceId: body.deviceId ?? 'jetson-b01',
         apiKey: INGEST_API_KEY,
       };
 

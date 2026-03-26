@@ -1,4 +1,4 @@
-import { eq, desc, gte } from "drizzle-orm";
+import { eq, desc, gte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { InsertUser, users, vitalsSnapshots, alertEvents, companionLogs, InsertVitalsSnapshot, InsertAlertEvent, InsertCompanionLog } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -160,4 +160,68 @@ export async function getRecentCompanionLogs(limit: number = 50) {
     .where(gte(companionLogs.createdAt, since))
     .orderBy(desc(companionLogs.createdAt))
     .limit(limit);
+}
+
+// ─── BVI History (for week/month comparison) ─────────────────────────────────
+
+export interface BviDailySummary {
+  date: string;       // "YYYY-MM-DD"
+  avgBvi: number;
+  peakBvi: number;
+  activeMinutes: number;   // minutes where bvi >= 40 (each snapshot = 5 min)
+  restingMinutes: number;
+  dataPoints: number;
+}
+
+/**
+ * Get per-day BVI summaries for the past N days.
+ * Each snapshot represents ~5 minutes of data.
+ */
+export async function getBviHistory(days: number = 7): Promise<BviDailySummary[]> {
+  const db = await getDb();
+  if (!db) return [];
+
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+  // Fetch raw snapshots for the period
+  const rows = await db.select({
+    createdAt: vitalsSnapshots.createdAt,
+    bvi: vitalsSnapshots.bvi,
+  })
+    .from(vitalsSnapshots)
+    .where(gte(vitalsSnapshots.createdAt, since))
+    .orderBy(desc(vitalsSnapshots.createdAt))
+    .limit(days * 300); // max 300 snapshots per day (5-min interval = 288/day)
+
+  if (rows.length === 0) return [];
+
+  // Group by date
+  const byDate: Record<string, number[]> = {};
+  for (const row of rows) {
+    const d = new Date(row.createdAt);
+    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (!byDate[dateKey]) byDate[dateKey] = [];
+    if (row.bvi !== null) byDate[dateKey].push(row.bvi);
+  }
+
+  // Build summaries
+  const summaries: BviDailySummary[] = Object.entries(byDate).map(([date, bvis]) => {
+    const avg = bvis.length > 0 ? Math.round(bvis.reduce((s, v) => s + v, 0) / bvis.length) : 0;
+    const peak = bvis.length > 0 ? Math.max(...bvis) : 0;
+    const activeCount = bvis.filter(b => b >= 40).length;
+    const restingCount = bvis.filter(b => b < 40).length;
+    return {
+      date,
+      avgBvi: avg,
+      peakBvi: peak,
+      activeMinutes: activeCount * 5,
+      restingMinutes: restingCount * 5,
+      dataPoints: bvis.length,
+    };
+  });
+
+  // Sort ascending by date
+  summaries.sort((a, b) => a.date.localeCompare(b.date));
+
+  return summaries;
 }

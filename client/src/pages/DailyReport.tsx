@@ -1,8 +1,9 @@
 // Guardian Dashboard - Daily Health Report Page
 // AI-generated daily summary using real Jetson sensor data via Qwen
+// Feature: Report language auto-syncs with UI language (no manual selection needed)
 
-import { useState } from 'react';
-import { FileText, RefreshCw, Heart, Activity, Bell, MessageSquare, CheckCircle, AlertTriangle, TrendingUp, Database, Sparkles } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { FileText, RefreshCw, Heart, Activity, Bell, MessageSquare, CheckCircle, AlertTriangle, TrendingUp, Database, Sparkles, Globe } from 'lucide-react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { trpc } from '../lib/trpc';
 import { toast } from 'sonner';
@@ -10,19 +11,44 @@ import { toast } from 'sonner';
 export default function DailyReport() {
   const { isEnglish, isDemoMode } = useDashboard();
   const [report, setReport] = useState<any>(null);
+  const [reportLanguage, setReportLanguage] = useState<'zh' | 'en'>(isEnglish ? 'en' : 'zh');
+
+  // Auto-sync report language with UI language
+  // When the user switches language, update the indicator but don't auto-regenerate
+  // (regeneration is explicit via button to avoid unnecessary API calls)
+  useEffect(() => {
+    setReportLanguage(isEnglish ? 'en' : 'zh');
+    // If a report already exists in a different language, clear it so user knows to regenerate
+    if (report) {
+      const reportIsEnglish = report._language === 'en';
+      if (reportIsEnglish !== isEnglish) {
+        setReport(null);
+        toast.info(
+          isEnglish
+            ? 'Language switched to English. Click "Generate Report" for an English report.'
+            : '语言已切换为中文，请点击"生成报告"获取中文版报告。',
+          { duration: 4000 }
+        );
+      }
+    }
+  }, [isEnglish]);
 
   const generateMutation = trpc.report.generateDaily.useMutation({
     onSuccess: (data) => {
-      setReport(data);
+      // Tag the report with the language it was generated in
+      setReport({ ...data, _language: reportLanguage });
       toast.success(isEnglish ? 'Report generated!' : '报告已生成！');
     },
     onError: (err) => {
-      toast.error(isEnglish ? 'Failed to generate report' : '报告生成失败：' + err.message);
+      toast.error(isEnglish ? 'Failed to generate report: ' + err.message : '报告生成失败：' + err.message);
     },
   });
 
   const handleGenerate = () => {
-    generateMutation.mutate({ language: isEnglish ? 'en' : 'zh' });
+    // Always use current UI language for generation
+    const lang = isEnglish ? 'en' : 'zh';
+    setReportLanguage(lang);
+    generateMutation.mutate({ language: lang });
   };
 
   const statusColors = {
@@ -53,20 +79,40 @@ export default function DailyReport() {
               : "基于真实传感器数据的 AI 摘要 · 生理数据 · 报警记录 · AI 对话"}
           </p>
         </div>
-        <button
-          onClick={handleGenerate}
-          disabled={generateMutation.isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 shadow-sm"
-        >
-          {generateMutation.isPending ? (
-            <RefreshCw size={14} className="animate-spin" />
-          ) : (
-            <FileText size={14} />
-          )}
-          {generateMutation.isPending
-            ? (isEnglish ? 'Generating...' : 'AI 生成中...')
-            : (isEnglish ? 'Generate Report' : '生成报告')}
-        </button>
+
+        <div className="flex items-center gap-2">
+          {/* Language sync indicator */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted text-muted-foreground text-xs border border-border">
+            <Globe size={12} />
+            <span>{isEnglish ? 'EN' : '中文'}</span>
+            <span className="text-[10px] opacity-60">{isEnglish ? '(auto)' : '（自动）'}</span>
+          </div>
+
+          <button
+            onClick={handleGenerate}
+            disabled={generateMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-60 shadow-sm"
+          >
+            {generateMutation.isPending ? (
+              <RefreshCw size={14} className="animate-spin" />
+            ) : (
+              <FileText size={14} />
+            )}
+            {generateMutation.isPending
+              ? (isEnglish ? 'Generating...' : 'AI 生成中...')
+              : (isEnglish ? 'Generate Report' : '生成报告')}
+          </button>
+        </div>
+      </div>
+
+      {/* Language auto-sync notice */}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5 flex items-center gap-2">
+        <Globe size={13} className="text-blue-500 flex-shrink-0" />
+        <p className="text-xs text-blue-700">
+          {isEnglish
+            ? 'Report language is automatically synced with the UI language. Switching language and regenerating will produce a report in the new language.'
+            : '报告语言已与界面语言自动同步。切换语言后重新生成，将获得对应语言的报告。'}
+        </p>
       </div>
 
       {/* Data source notice */}
@@ -92,8 +138,8 @@ export default function DailyReport() {
           </p>
           <p className="text-xs text-muted-foreground/70 mt-1 max-w-sm mx-auto">
             {isEnglish
-              ? 'Qwen AI will analyze 24h sensor data and generate personalized health insights and recommendations'
-              : 'Qwen AI 将分析24小时传感器数据，生成个性化健康洞察和建议'}
+              ? 'Qwen AI will analyze 24h sensor data and generate personalized health insights and recommendations in English.'
+              : 'Qwen AI 将分析24小时传感器数据，生成个性化中文健康洞察和建议'}
           </p>
           <div className="flex items-center justify-center gap-4 mt-5 text-[11px] text-muted-foreground">
             {[
@@ -127,6 +173,11 @@ export default function DailyReport() {
                     {isEnglish ? 'Real Data' : '真实数据'}
                   </span>
                 )}
+                {/* Language badge */}
+                <span className="flex items-center gap-1 text-[10px] bg-blue-50 text-blue-600 border border-blue-200 px-1.5 py-0.5 rounded">
+                  <Globe size={9} />
+                  {report._language === 'en' ? 'EN' : '中文'}
+                </span>
               </div>
               <span className="text-xs text-muted-foreground">{report.date}</span>
             </div>

@@ -1,9 +1,10 @@
 // Guardian Dashboard - AI Companion Voice Chat Page
 // Browser microphone → Whisper transcription → Qwen AI reply → TTS playback
 // Also shows conversation history from Jetson Nano
+// Feature: Quick phrase localization (Chinese/English based on UI language)
 
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Mic, MicOff, Send, Bot, User, Volume2, VolumeX, Loader2, Clock, AlertTriangle, Moon, ChevronDown, ChevronUp, Settings, Trash2 } from 'lucide-react';
+import { Mic, MicOff, Send, Bot, User, Volume2, VolumeX, Loader2, ChevronDown, ChevronUp, Settings, Trash2 } from 'lucide-react';
 import { useDashboard } from '../contexts/DashboardContext';
 import { trpc } from '../lib/trpc';
 import { toast } from 'sonner';
@@ -19,6 +20,31 @@ type ChatMessage = {
   source?: 'browser' | 'jetson';
 };
 
+// ─── Localized Quick Phrases ─────────────────────────────────────────────────
+// Feature: Quick phrase localization — phrases match the current UI language
+
+const QUICK_PHRASES_ZH = [
+  { label: '今天感觉怎么样？', category: 'greeting' },
+  { label: '提醒我吃药', category: 'health' },
+  { label: '讲个故事', category: 'entertainment' },
+  { label: '今天天气怎么样？', category: 'info' },
+  { label: '我有点头疼', category: 'health' },
+  { label: '帮我做个深呼吸练习', category: 'health' },
+  { label: '今天吃了什么？', category: 'health' },
+  { label: '我想聊聊天', category: 'greeting' },
+];
+
+const QUICK_PHRASES_EN = [
+  { label: "How are you today?", category: 'greeting' },
+  { label: "Remind me to take medicine", category: 'health' },
+  { label: "Tell me a story", category: 'entertainment' },
+  { label: "What's the weather today?", category: 'info' },
+  { label: "I have a headache", category: 'health' },
+  { label: "Guide me through breathing", category: 'health' },
+  { label: "What did I eat today?", category: 'health' },
+  { label: "I want to chat", category: 'greeting' },
+];
+
 // ─── TTS Helper ───────────────────────────────────────────────────────────────
 
 function speakText(text: string, lang = 'zh-CN') {
@@ -30,8 +56,8 @@ function speakText(text: string, lang = 'zh-CN') {
   utterance.pitch = 1.05;
   // Prefer a female Chinese voice
   const voices = window.speechSynthesis.getVoices();
-  const preferred = voices.find(v => v.lang.startsWith('zh') && v.name.toLowerCase().includes('female'))
-    ?? voices.find(v => v.lang.startsWith('zh'))
+  const preferred = voices.find(v => v.lang.startsWith(lang.slice(0, 2)) && v.name.toLowerCase().includes('female'))
+    ?? voices.find(v => v.lang.startsWith(lang.slice(0, 2)))
     ?? null;
   if (preferred) utterance.voice = preferred;
   window.speechSynthesis.speak(utterance);
@@ -39,12 +65,20 @@ function speakText(text: string, lang = 'zh-CN') {
 
 // ─── Workflow Steps (static display) ─────────────────────────────────────────
 
-const WORKFLOW_STEPS = [
+const WORKFLOW_STEPS_ZH = [
   { step: '1. 传感器数据采集', detail: '雷达 R60ABD1 + PPG STM32 持续监测', status: 'completed' as const },
   { step: '2. BVI 活力指数计算', detail: '基于心率、呼吸、体动的综合评分', status: 'completed' as const },
   { step: '3. 主动巡检触发', detail: 'BVI < 40 或超过1小时未互动时触发', status: 'running' as const },
   { step: '4. Qwen AI 生成回复', detail: '云端 Qwen-Turbo 生成关怀性语言', status: 'running' as const },
   { step: '5. TTS 语音播报', detail: '本地 pyttsx3 / 云端 Edge-TTS 播放', status: 'pending' as const },
+];
+
+const WORKFLOW_STEPS_EN = [
+  { step: '1. Sensor Data Collection', detail: 'R60ABD1 radar + STM32 PPG continuous monitoring', status: 'completed' as const },
+  { step: '2. BVI Calculation', detail: 'Composite score from HR, respiration, movement', status: 'completed' as const },
+  { step: '3. Proactive Patrol Trigger', detail: 'BVI < 40 or no interaction for 1+ hour', status: 'running' as const },
+  { step: '4. Qwen AI Response', detail: 'Cloud Qwen-Turbo generates caring language', status: 'running' as const },
+  { step: '5. TTS Playback', detail: 'Local pyttsx3 / Cloud Edge-TTS', status: 'pending' as const },
 ];
 
 // ─── Main Component ───────────────────────────────────────────────────────────
@@ -70,6 +104,10 @@ export default function CompanionLog() {
   // Scroll ref
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // ── Localized quick phrases ─────────────────────────────────────────────────
+  const quickPhrases = isEnglish ? QUICK_PHRASES_EN : QUICK_PHRASES_ZH;
+  const workflowSteps = isEnglish ? WORKFLOW_STEPS_EN : WORKFLOW_STEPS_ZH;
+
   // tRPC mutations
   const chatMutation = trpc.companion.chat.useMutation({
     onSuccess: (data) => {
@@ -77,15 +115,15 @@ export default function CompanionLog() {
         id: `a-${Date.now()}`,
         role: 'assistant',
         content: data.reply,
-        timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        timestamp: new Date().toLocaleTimeString(isEnglish ? 'en-US' : 'zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
         type: 'chat',
         source: 'browser',
       };
       setMessages(prev => [...prev, assistantMsg]);
-      if (isTtsEnabled) speakText(data.reply);
+      if (isTtsEnabled) speakText(data.reply, isEnglish ? 'en-US' : 'zh-CN');
     },
     onError: (err) => {
-      toast.error(isEnglish ? 'AI reply failed' : 'AI 回复失败：' + err.message);
+      toast.error(isEnglish ? 'AI reply failed: ' + err.message : 'AI 回复失败：' + err.message);
     },
   });
 
@@ -93,12 +131,11 @@ export default function CompanionLog() {
     onSuccess: (data) => {
       if (data.text) {
         setInputText(data.text);
-        // Auto-send after transcription
         sendMessage(data.text);
       }
     },
     onError: (err) => {
-      toast.error(isEnglish ? 'Transcription failed' : '语音识别失败：' + err.message);
+      toast.error(isEnglish ? 'Transcription failed: ' + err.message : '语音识别失败：' + err.message);
     },
   });
 
@@ -107,15 +144,15 @@ export default function CompanionLog() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Initialize with welcome message
+  // Initialize with welcome message (re-init when language changes)
   useEffect(() => {
     setMessages([{
-      id: 'welcome',
+      id: `welcome-${isEnglish ? 'en' : 'zh'}`,
       role: 'assistant',
       content: isEnglish
         ? "Hello! I'm Xiao An, your AI companion. I can chat with you, remind you to take medicine, and check on your health. How are you feeling today? 😊"
         : "您好！我是小安，您的智能陪伴助手～就像邻家的小女儿，陪您说说话、聊聊天、提醒吃药、关注健康。您今天感觉怎么样？😊",
-      timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      timestamp: new Date().toLocaleTimeString(isEnglish ? 'en-US' : 'zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
       type: 'chat',
       source: 'browser',
     }]);
@@ -131,7 +168,7 @@ export default function CompanionLog() {
       id: `u-${Date.now()}`,
       role: 'user',
       content,
-      timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      timestamp: new Date().toLocaleTimeString(isEnglish ? 'en-US' : 'zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
       type: 'chat',
       source: 'browser',
     };
@@ -141,7 +178,7 @@ export default function CompanionLog() {
     // Build history for context (last 8 messages)
     const history = messages.slice(-8).map(m => ({ role: m.role, content: m.content }));
     chatMutation.mutate({ message: content, history });
-  }, [inputText, messages, chatMutation, isTtsEnabled]);
+  }, [inputText, messages, chatMutation, isEnglish]);
 
   // ─── Voice recording ───────────────────────────────────────────────────────
 
@@ -163,10 +200,9 @@ export default function CompanionLog() {
         stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         if (blob.size < 1000) {
-          toast.warning(isEnglish ? 'Recording too short' : '录音太短，请重试');
+          toast.warning(isEnglish ? 'Recording too short, please try again' : '录音太短，请重试');
           return;
         }
-        // Convert to base64
         setIsTranscribing(true);
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -174,7 +210,7 @@ export default function CompanionLog() {
           transcribeMutation.mutate({
             audioBase64: base64,
             mimeType: mimeType.split(';')[0],
-            language: 'auto',  // Let Whisper auto-detect language
+            language: 'auto',
           });
           setIsTranscribing(false);
         };
@@ -196,7 +232,7 @@ export default function CompanionLog() {
         });
       }, 1000);
     } catch (err) {
-      toast.error(isEnglish ? 'Microphone access denied' : '无法访问麦克风，请检查浏览器权限');
+      toast.error(isEnglish ? 'Microphone access denied. Please check browser permissions.' : '无法访问麦克风，请检查浏览器权限');
     }
   };
 
@@ -220,10 +256,10 @@ export default function CompanionLog() {
   const clearChat = () => {
     window.speechSynthesis?.cancel();
     setMessages([{
-      id: 'welcome-new',
+      id: `welcome-new-${Date.now()}`,
       role: 'assistant',
       content: isEnglish ? "Chat cleared. How can I help you?" : "对话已清空，有什么我可以帮您的吗？",
-      timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
+      timestamp: new Date().toLocaleTimeString(isEnglish ? 'en-US' : 'zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }),
       type: 'chat',
       source: 'browser',
     }]);
@@ -274,10 +310,10 @@ export default function CompanionLog() {
       </div>
 
       {/* Tab switcher */}
-      <div className="flex gap-1 flex-shrink-0">
+      <div className="flex items-center gap-2 flex-shrink-0">
         {[
-          { id: 'chat', label: isEnglish ? 'Voice Chat' : '语音对话' },
-          { id: 'history', label: isEnglish ? 'Jetson Log' : 'Jetson 日志' },
+          { id: 'chat', label: isEnglish ? 'Chat with Xiao An' : '与小安对话' },
+          { id: 'history', label: isEnglish ? 'Jetson Logs' : 'Jetson 日志' },
         ].map(tab => (
           <button
             key={tab.id}
@@ -311,7 +347,9 @@ export default function CompanionLog() {
                   <div className={`max-w-[75%] flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
                     <div className="flex items-center gap-2">
                       {msg.role === 'assistant' && (
-                        <span className="text-[11px] font-semibold text-primary">小安</span>
+                        <span className="text-[11px] font-semibold text-primary">
+                          {isEnglish ? 'Xiao An' : '小安'}
+                        </span>
                       )}
                       <span className="text-[10px] text-muted-foreground font-mono">{msg.timestamp}</span>
                     </div>
@@ -325,7 +363,7 @@ export default function CompanionLog() {
                     {/* TTS replay button for assistant */}
                     {msg.role === 'assistant' && isTtsEnabled && (
                       <button
-                        onClick={() => speakText(msg.content)}
+                        onClick={() => speakText(msg.content, isEnglish ? 'en-US' : 'zh-CN')}
                         className="text-[10px] text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
                       >
                         <Volume2 size={10} />
@@ -347,7 +385,7 @@ export default function CompanionLog() {
                     <span className="text-xs text-muted-foreground">
                       {isTranscribing || transcribeMutation.isPending
                         ? (isEnglish ? 'Transcribing...' : '正在识别语音...')
-                        : (isEnglish ? 'Thinking...' : '小安正在思考...')}
+                        : (isEnglish ? 'Xiao An is thinking...' : '小安正在思考...')}
                     </span>
                   </div>
                 </div>
@@ -416,21 +454,23 @@ export default function CompanionLog() {
               </button>
             </div>
 
-            {/* Quick prompts */}
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {(isEnglish
-                ? ["How are you?", "Remind me to take medicine", "Tell me a story", "What's the weather?"]
-                : ["今天感觉怎么样？", "提醒我吃药", "讲个故事", "今天天气怎么样？"]
-              ).map(prompt => (
-                <button
-                  key={prompt}
-                  onClick={() => sendMessage(prompt)}
-                  disabled={isLoading}
-                  className="px-2.5 py-1 rounded-full text-[11px] bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary border border-border transition-all disabled:opacity-40"
-                >
-                  {prompt}
-                </button>
-              ))}
+            {/* Quick prompts — localized based on UI language */}
+            <div className="mt-2">
+              <p className="text-[10px] text-muted-foreground mb-1.5">
+                {isEnglish ? 'Quick phrases:' : '快捷短语：'}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {quickPhrases.map(phrase => (
+                  <button
+                    key={phrase.label}
+                    onClick={() => sendMessage(phrase.label)}
+                    disabled={isLoading}
+                    className="px-2.5 py-1 rounded-full text-[11px] bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary border border-border transition-all disabled:opacity-40"
+                  >
+                    {phrase.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </>
@@ -453,7 +493,7 @@ export default function CompanionLog() {
             </button>
             {workflowExpanded && (
               <div className="px-4 pb-4 border-t border-border space-y-2 mt-3">
-                {WORKFLOW_STEPS.map((step, i) => (
+                {workflowSteps.map((step, i) => (
                   <div key={i} className="flex items-start gap-3">
                     <div className="mt-1 flex-shrink-0">
                       {step.status === 'completed' && (
@@ -504,38 +544,40 @@ export default function CompanionLog() {
             ) : (
               <div className="divide-y divide-border">
                 {conversations.map((msg, i) => (
-                  <div key={msg.id ?? i} className={`px-4 py-3 ${msg.role === 'system' ? 'bg-muted/30' : ''}`}>
+                  <div key={(msg as any).id ?? i} className={`px-4 py-3 ${msg.role === 'system' ? 'bg-muted/30' : ''}`}>
                     {msg.role === 'system' ? (
                       <div className="flex items-center gap-2">
                         <Settings size={10} className="text-muted-foreground" />
-                        <span className="text-[11px] text-muted-foreground italic">{msg.content}</span>
+                        <span className="text-[11px] text-muted-foreground italic">
+                          {isEnglish ? msg.content : (msg as any).content_zh ?? msg.content}
+                        </span>
                         <span className="text-[10px] text-muted-foreground/50 font-mono ml-auto">{msg.timestamp}</span>
                       </div>
                     ) : (
                       <div className={`flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${msg.role === 'ai' ? 'bg-primary/10' : 'bg-muted'}`}>
-                          {msg.role === 'ai' ? <Bot size={13} className="text-primary" /> : <User size={13} className="text-muted-foreground" />}
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
+                          msg.role === 'ai' || msg.role === 'assistant' ? 'bg-primary/10' : 'bg-muted'
+                        }`}>
+                          {msg.role === 'ai' || msg.role === 'assistant'
+                            ? <Bot size={13} className="text-primary" />
+                            : <User size={13} className="text-muted-foreground" />
+                          }
                         </div>
-                        <div className={`flex-1 max-w-[80%] flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                          <div className="flex items-center gap-2">
-                            {msg.role === 'ai' && <span className="text-[11px] font-medium text-primary">Jetson AI</span>}
-                            {msg.type && msg.type !== 'conversation' && (
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded border font-medium ${
-                                msg.type === 'patrol' ? 'bg-teal-50 text-teal-600 border-teal-200'
-                                : msg.type === 'alert_response' ? 'bg-amber-50 text-amber-600 border-amber-200'
-                                : 'bg-blue-50 text-blue-600 border-blue-200'
-                              }`}>
-                                {msg.type === 'patrol' ? (isEnglish ? 'Patrol' : '巡检')
-                                : msg.type === 'alert_response' ? (isEnglish ? 'Alert' : '报警响应')
-                                : (isEnglish ? 'Nocturnal' : '夜间')}
+                        <div className={`max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-0.5`}>
+                          <div className="flex items-center gap-1.5">
+                            {(msg.role === 'ai' || msg.role === 'assistant') && (
+                              <span className="text-[10px] font-semibold text-primary">
+                                {isEnglish ? 'Xiao An (Jetson)' : '小安（Jetson）'}
                               </span>
                             )}
-                            <span className="text-[10px] text-muted-foreground font-mono">{msg.timestamp}</span>
+                            <span className="text-[10px] text-muted-foreground/50 font-mono">{msg.timestamp}</span>
                           </div>
                           <div className={`px-3 py-2 rounded-xl text-xs leading-relaxed ${
-                            msg.role === 'ai' ? 'bg-muted text-foreground rounded-tl-sm' : 'bg-primary text-primary-foreground rounded-tr-sm'
+                            msg.role === 'ai' || msg.role === 'assistant'
+                              ? 'bg-muted text-foreground rounded-tl-sm'
+                              : 'bg-primary/10 text-foreground rounded-tr-sm'
                           }`}>
-                            {msg.content}
+                            {isEnglish ? msg.content : (msg as any).content_zh ?? msg.content}
                           </div>
                         </div>
                       </div>
