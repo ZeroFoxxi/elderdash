@@ -98,6 +98,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const [dataSource, setDataSourceState] = useState<DataSourceMode>('demo');
   const [demoScenario, setDemoScenarioState] = useState<ScenarioType>('normal');
   const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const lastVitalsTimeRef = useRef<number>(0);
 
   const [vitals, setVitals] = useState<VitalsData | null>(null);
   const [vitalsHistory, setVitalsHistory] = useState<VitalsData[]>([]);
@@ -155,6 +156,9 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       }
     },
     onVitals: (rv) => {
+      // Mark as connected whenever we receive vitals data
+      lastVitalsTimeRef.current = Date.now();
+      setRealtimeConnected(true);
       if (dataSource !== 'realtime') return;
       const mapped = mapRealtimeVitals(rv);
       setVitals(mapped);
