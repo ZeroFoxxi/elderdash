@@ -19,6 +19,8 @@
 import { WebSocketServer, WebSocket } from "ws";
 import type { Server } from "http";
 import type { Express } from "express";
+import fs from "fs";
+import path from "path";
 import {
   insertVitalsSnapshot,
   insertAlertEvent,
@@ -235,5 +237,36 @@ export function setupRealtimeServer(httpServer: Server, app: Express) {
       ts: Date.now(),
       message: "Guardian Dashboard API is running",
     });
+  });
+
+  /**
+   * POST /api/ingest/deploy-bundle
+   * Upload new JS/CSS bundle files to replace old ones in production.
+   * Body: { apiKey, filename, content (base64) }
+   */
+  app.post("/api/ingest/deploy-bundle", verifyApiKey, async (req, res) => {
+    try {
+      const { filename, content } = req.body;
+      if (!filename || !content) {
+        return res.status(400).json({ error: "filename and content are required" });
+      }
+      // Only allow JS/CSS/HTML files
+      if (!/\.(js|css|html)$/.test(filename)) {
+        return res.status(400).json({ error: "Only .js, .css, .html files are allowed" });
+      }
+      // Determine target directory
+      const publicDir = path.resolve(import.meta.dirname, "public");
+      const assetsDir = path.join(publicDir, "assets");
+      const targetDir = filename === "index.html" ? publicDir : assetsDir;
+      const targetPath = path.join(targetDir, filename);
+      // Write file
+      const buffer = Buffer.from(content, "base64");
+      fs.writeFileSync(targetPath, buffer);
+      console.log(`[Deploy] Wrote ${buffer.length} bytes to ${targetPath}`);
+      res.json({ ok: true, path: targetPath, size: buffer.length });
+    } catch (err: any) {
+      console.error("[Deploy] Error:", err);
+      res.status(500).json({ error: err.message });
+    }
   });
 }
