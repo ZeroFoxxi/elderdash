@@ -251,13 +251,15 @@ export class ScenarioEngine {
         targetBVI = 55 + noise(5);
         targetSpo2 = 97 + (Math.random() < 0.3 ? 1 : 0);
         ppgSignalQuality = 75 + Math.round(noise(10));
-        // 每 5 tick 触发一次报警，避免每秒刷屏
-        if (this.currentHR > 100 && this.tick % 5 === 0) {
+        // 第 5 tick 时心率已平滑到 95+，直接用 tick >= 5 且每 5 tick 一次
+        // 不再依赖 currentHR 条件，避免数值与节流时机错位
+        if (this.tick >= 5 && this.tick % 5 === 0) {
+          const hrVal = Math.max(100, Math.round(this.currentHR));
           alert = {
             type: 'hr_high',
             severity: 'Warning',
-            message: `Heart rate elevated ${Math.round(this.currentHR)} bpm, please rest.`,
-            message_zh: `心率偏高 ${Math.round(this.currentHR)} bpm，请注意休息。`,
+            message: `Heart rate elevated ${hrVal} bpm, please rest.`,
+            message_zh: `心率偏高 ${hrVal} bpm，请注意休息。`,
             timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           };
         }
@@ -337,13 +339,15 @@ export class ScenarioEngine {
         targetBVI = 35 + noise(5);
         targetSpo2 = 89 + Math.sin(this.tick / 30) * 3;
         ppgSignalQuality = 70 + Math.round(noise(10));
-        // 每 8 tick 触发一次，避免报警刷屏
-        if (this.currentSpo2 < 95 && this.tick % 8 === 0) {
+        // 第 8 tick 时 spo2 已平滑到 94 以下，直接用 tick >= 8 且每 8 tick 一次
+        // 不再依赖 currentSpo2 < 95 条件，避免数值与节流时机错位
+        if (this.tick >= 8 && this.tick % 8 === 0) {
+          const spo2Val = Math.min(94, Math.round(this.currentSpo2));
           alert = {
             type: 'spo2_low',
             severity: 'Critical',
-            message: `SpO₂ persistently low (${Math.round(this.currentSpo2)}%), please rest. Seek medical attention if discomfort.`,
-            message_zh: `血氧饱和度持续偏低（${Math.round(this.currentSpo2)}%），请注意休息，如有不适请立即就医。`,
+            message: `SpO₂ persistently low (${spo2Val}%), please rest. Seek medical attention if discomfort.`,
+            message_zh: `血氧饱和度持续偏低（${spo2Val}%），请注意休息，如有不适请立即就医。`,
             timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
           };
         }
