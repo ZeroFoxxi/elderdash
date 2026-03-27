@@ -197,7 +197,7 @@ export default function LiveMonitor() {
             <span className="text-xs font-semibold" style={{ color: isLive ? '#10b981' : '#ef4444' }}>
               {isLive
                 ? (isEnglish ? '● Jetson Connected — Receiving real-time data' : '● Jetson 已连接 — 正在接收实时数据')
-                : (isEnglish ? '○ Waiting for Jetson data... Run the Python script on Jetson Nano' : '○ 等待 Jetson 数据... 请在 Jetson Nano 上运行 Python 脚本')}
+                : (isEnglish ? '○ Waiting for Jetson data... Run jetson_push_data.py on Jetson Nano (URL: elderdash-ky9k6ssp.manus.space)' : '○ 等待 Jetson 数据... 请在 Jetson Nano 上运行 jetson_push_data.py（目标：elderdash-ky9k6ssp.manus.space）')}
             </span>
           </div>
         );

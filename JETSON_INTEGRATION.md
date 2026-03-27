@@ -5,8 +5,8 @@
 ```
 Jetson Nano (Python)
   ↓ HTTP POST (每5秒)
-Cloud Dashboard API (https://elderdash-ff68zyqh.manus.space)
-  ↓ WebSocket 广播
+Cloud Dashboard API (https://elderdash-ky9k6ssp.manus.space)
+  ↓ tRPC 轮询（5s）
 Browser Dashboard (实时显示)
 ```
 
@@ -94,10 +94,10 @@ tail -f /tmp/companion.log
 
 ```bash
 # 测试Dashboard是否可达
-curl https://elderdash-ff68zyqh.manus.space/api/ingest/status
+curl https://elderdash-ky9k6ssp.manus.space/api/ingest/status
 
 # 手动推送一条测试数据
-curl -X POST https://elderdash-ff68zyqh.manus.space/api/ingest/vitals \
+curl -X POST https://elderdash-ky9k6ssp.manus.space/api/ingest/vitals \
   -H "Content-Type: application/json" \
   -d '{"apiKey":"guardian-jetson-2024","radarHr":75,"radarRr":16,"movement":2.5,"targetId":"Human","ppgHr":74,"ppgSpo2":98,"ppgSignalQuality":80,"ppgConnected":true,"fusedHr":74.6,"fusedMethod":"RULE4","bvi":65}'
 ```
@@ -143,10 +143,10 @@ curl -X POST https://elderdash-ff68zyqh.manus.space/api/ingest/vitals \
 
 ## Dashboard 操作
 
-1. 打开 https://elderdash-ff68zyqh.manus.space
-2. 点击侧边栏底部的 **演示模式** 按钮
-3. 切换到 **实时** 标签
-4. 等待 Jetson 连接（顶部状态栏会显示 "● Jetson 实时"）
+1. 打开 https://elderdash-ky9k6ssp.manus.space
+2. 侧边栏底部切换到 **实时** 模式（Realtime）
+3. 等待 Jetson 连接（顶部状态栏会显示 "● Jetson 实时"）
+4. 数据将在 5 秒内自动刷新显示
 
 ## 故障排查
 
@@ -156,3 +156,21 @@ curl -X POST https://elderdash-ff68zyqh.manus.space/api/ingest/vitals \
 | 401 错误 | API Key 错误 | 确认 apiKey 为 `guardian-jetson-2024` |
 | 数据不显示 | 未切换到实时模式 | Dashboard 侧边栏切换到"实时"模式 |
 | 心率显示0 | 字段名错误 | 检查 radarHr/fusedHr 字段是否正确 |
+| Dashboard 显示"等待数据" | URL 配置错误 | 确认 DASHBOARD_URL 为 `https://elderdash-ky9k6ssp.manus.space` |
+
+## 常见问题
+
+**Q: 为什么推送成功但 Dashboard 没有数据？**
+
+A: 请确认 `jetson_push_data.py` 中的 `DASHBOARD_URL` 配置为：
+```python
+DASHBOARD_URL = "https://elderdash-ky9k6ssp.manus.space"
+```
+旧版脚本使用的是 `elderdash-ff68zyqh.manus.space`（已废弃），请更新为上述新地址。
+
+**Q: 如何确认数据已成功推送到 Dashboard？**
+
+A: 运行以下命令，如果 `isLive` 为 `true` 且 `vitalsAge` 小于 30000（毫秒），说明数据正常：
+```bash
+curl https://elderdash-ky9k6ssp.manus.space/api/trpc/realtime.poll
+```

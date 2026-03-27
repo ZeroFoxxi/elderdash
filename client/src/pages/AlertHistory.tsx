@@ -1,13 +1,34 @@
 // Guardian Dashboard - Alert History Page
 // CA1 Improvement: Human/Pet Discrimination
+// Feature: Filter by severity AND alert type
 
 import { useState } from 'react';
-import { AlertCircle, AlertTriangle, Info, Check, CheckCheck, Filter, PawPrint, Bell, BellOff, BellRing } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, Check, CheckCheck, Filter, PawPrint, Bell, BellOff, BellRing, X } from 'lucide-react';
 import { useDashboard } from '../contexts/DashboardContext';
 import type { AlertData } from '../lib/types';
 import { toast } from 'sonner';
 
 type FilterType = 'all' | 'critical' | 'warning' | 'info';
+
+// Alert type labels for display
+const ALERT_TYPE_LABELS: Record<string, { en: string; zh: string; color: string }> = {
+  fall:      { en: 'Fall',       zh: '跌倒',   color: '#ef4444' },
+  hr_high:   { en: 'HR High',    zh: '心率偏高', color: '#f59e0b' },
+  hr_low:    { en: 'HR Low',     zh: '心率偏低', color: '#3b82f6' },
+  spo2_low:  { en: 'SpO₂ Low',  zh: '血氧偏低', color: '#8b5cf6' },
+  bvi_low:   { en: 'BVI Low',    zh: 'BVI偏低', color: '#f97316' },
+  nocturnal: { en: 'Nocturnal',  zh: '夜间异常', color: '#6366f1' },
+};
+
+function getAlertTypeLabel(type: string, isEnglish: boolean): string {
+  const label = ALERT_TYPE_LABELS[type.toLowerCase()];
+  if (label) return isEnglish ? label.en : label.zh;
+  return type.toUpperCase();
+}
+
+function getAlertTypeColor(type: string): string {
+  return ALERT_TYPE_LABELS[type.toLowerCase()]?.color ?? '#6b7280';
+}
 
 function getSeverityIcon(severity: AlertData['severity']) {
   switch (severity) {
@@ -36,17 +57,24 @@ export default function AlertHistory() {
     notificationPermission, requestNotifications, notificationsEnabled, toggleNotifications,
   } = useDashboard();
   const [filter, setFilter] = useState<FilterType>('all');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [showPetFiltered, setShowPetFiltered] = useState(false);
 
+  // Collect unique alert types from current alerts
+  const alertTypes = Array.from(new Set(alerts.map(a => a.type.toLowerCase()))).sort();
+
   const filtered = alerts.filter(a => {
-    if (filter === 'all') return true;
-    if (filter === 'critical') return a.severity === 'Critical';
-    if (filter === 'warning') return a.severity === 'Warning';
-    if (filter === 'info') return a.severity === 'Info';
-    return true;
+    const severityOk =
+      filter === 'all' ||
+      (filter === 'critical' && a.severity === 'Critical') ||
+      (filter === 'warning' && a.severity === 'Warning') ||
+      (filter === 'info' && a.severity === 'Info');
+    const typeOk = typeFilter === 'all' || a.type.toLowerCase() === typeFilter;
+    return severityOk && typeOk;
   });
 
   const criticalCount = alerts.filter(a => a.severity === 'Critical').length;
+  const hasActiveFilters = filter !== 'all' || typeFilter !== 'all';
 
   const handleNotificationToggle = async () => {
     if (notificationPermission === 'unsupported') {
@@ -173,71 +201,117 @@ export default function AlertHistory() {
         </div>
       )}
 
-      {/* Filter Tabs */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setFilter('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              filter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-white border border-border text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            {isEnglish ? 'All' : '全部'} ({alerts.length})
-          </button>
-          <button
-            onClick={() => setFilter('critical')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              filter === 'critical' ? 'bg-red-500 text-white' : 'bg-white border border-border text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            {isEnglish ? 'Critical' : '严重'} ({criticalCount})
-          </button>
-          <button
-            onClick={() => setFilter('warning')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              filter === 'warning' ? 'bg-amber-500 text-white' : 'bg-white border border-border text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            {isEnglish ? 'Warning' : '警告'} ({alerts.filter(a => a.severity === 'Warning').length})
-          </button>
-          <button
-            onClick={() => setFilter('info')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-              filter === 'info' ? 'bg-blue-500 text-white' : 'bg-white border border-border text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            {isEnglish ? 'Info' : '信息'} ({alerts.filter(a => a.severity === 'Info').length})
-          </button>
+      {/* ── Filter Panel ─────────────────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-border p-4 space-y-3">
+        {/* Severity filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] text-muted-foreground font-medium w-14 flex-shrink-0">
+            {isEnglish ? 'Severity' : '严重度'}
+          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {[
+              { key: 'all', label_zh: `全部 (${alerts.length})`, label_en: `All (${alerts.length})`, style: 'bg-primary text-primary-foreground', inactiveStyle: 'bg-white border border-border text-muted-foreground hover:bg-muted' },
+              { key: 'critical', label_zh: `严重 (${criticalCount})`, label_en: `Critical (${criticalCount})`, style: 'bg-red-500 text-white', inactiveStyle: 'bg-white border border-border text-muted-foreground hover:bg-muted' },
+              { key: 'warning', label_zh: `警告 (${alerts.filter(a => a.severity === 'Warning').length})`, label_en: `Warning (${alerts.filter(a => a.severity === 'Warning').length})`, style: 'bg-amber-500 text-white', inactiveStyle: 'bg-white border border-border text-muted-foreground hover:bg-muted' },
+              { key: 'info', label_zh: `信息 (${alerts.filter(a => a.severity === 'Info').length})`, label_en: `Info (${alerts.filter(a => a.severity === 'Info').length})`, style: 'bg-blue-500 text-white', inactiveStyle: 'bg-white border border-border text-muted-foreground hover:bg-muted' },
+            ].map(btn => (
+              <button
+                key={btn.key}
+                onClick={() => setFilter(btn.key as FilterType)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${filter === btn.key ? btn.style : btn.inactiveStyle}`}
+              >
+                {isEnglish ? btn.label_en : btn.label_zh}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowPetFiltered(prev => !prev)}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] border transition-all ${
-              showPetFiltered ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-white border-border text-muted-foreground hover:bg-muted'
-            }`}
-          >
-            <PawPrint size={11} />
-            {isEnglish ? 'Pet Filtered' : '宠物过滤'}
-          </button>
-          {unackedCount > 0 && (
+        {/* Alert type filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] text-muted-foreground font-medium w-14 flex-shrink-0">
+            {isEnglish ? 'Type' : '类型'}
+          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
             <button
-              onClick={acknowledgeAll}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] bg-white border border-border text-muted-foreground hover:bg-muted transition-all"
+              onClick={() => setTypeFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                typeFilter === 'all' ? 'bg-primary text-primary-foreground' : 'bg-white border border-border text-muted-foreground hover:bg-muted'
+              }`}
             >
-              <CheckCheck size={11} />
-              {isEnglish ? `Ack All (${unackedCount})` : `全部确认 (${unackedCount})`}
+              {isEnglish ? 'All Types' : '全部类型'}
             </button>
-          )}
+            {alertTypes.map(type => {
+              const count = alerts.filter(a => a.type.toLowerCase() === type).length;
+              const color = getAlertTypeColor(type);
+              const isActive = typeFilter === type;
+              return (
+                <button
+                  key={type}
+                  onClick={() => setTypeFilter(type)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all border ${isActive ? 'text-white' : 'bg-white text-muted-foreground hover:bg-muted'}`}
+                  style={isActive ? { backgroundColor: color, borderColor: color } : { borderColor: '#e5e7eb' }}
+                >
+                  {getAlertTypeLabel(type, isEnglish)} ({count})
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Bottom row: clear filters + pet filter + ack all */}
+        <div className="flex items-center justify-between pt-1 border-t border-border">
+          <div className="flex items-center gap-2">
+            {hasActiveFilters && (
+              <button
+                onClick={() => { setFilter('all'); setTypeFilter('all'); }}
+                className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-muted-foreground hover:bg-muted transition-all"
+              >
+                <X size={10} />
+                {isEnglish ? 'Clear Filters' : '清除筛选'}
+              </button>
+            )}
+            <span className="text-[11px] text-muted-foreground">
+              {isEnglish ? `Showing ${filtered.length} of ${alerts.length}` : `显示 ${filtered.length} / ${alerts.length} 条`}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowPetFiltered(prev => !prev)}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] border transition-all ${
+                showPetFiltered ? 'bg-amber-50 border-amber-200 text-amber-600' : 'bg-white border-border text-muted-foreground hover:bg-muted'
+              }`}
+            >
+              <PawPrint size={11} />
+              {isEnglish ? 'Pet Filtered' : '宠物过滤'}
+            </button>
+            {unackedCount > 0 && (
+              <button
+                onClick={acknowledgeAll}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] bg-white border border-border text-muted-foreground hover:bg-muted transition-all"
+              >
+                <CheckCheck size={11} />
+                {isEnglish ? `Ack All (${unackedCount})` : `全部确认 (${unackedCount})`}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Alert List */}
       <div className="space-y-2">
-        {filtered.length === 0 ? (
+        {
+          filtered.length === 0 ? (
           <div className="bg-white rounded-xl p-8 border border-border text-center">
             <Check size={24} className="text-emerald-400 mx-auto mb-2" />
             <p className="text-sm text-muted-foreground">{isEnglish ? 'No alerts in this category' : '此分类暂无报警'}</p>
+            {hasActiveFilters && (
+              <button
+                onClick={() => { setFilter('all'); setTypeFilter('all'); }}
+                className="mt-2 text-xs text-primary hover:underline"
+              >
+                {isEnglish ? 'Clear filters to see all alerts' : '清除筛选以查看全部报警'}
+              </button>
+            )}
           </div>
         ) : (
           filtered.map((alert, index) => (
@@ -252,9 +326,12 @@ export default function AlertHistory() {
                   {getSeverityIcon(alert.severity)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-bold text-foreground uppercase tracking-wide">
-                      {alert.type}
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span
+                      className="text-sm font-bold uppercase tracking-wide"
+                      style={{ color: getAlertTypeColor(alert.type) }}
+                    >
+                      {getAlertTypeLabel(alert.type, isEnglish)}
                     </span>
                     {getSeverityBadge(alert.severity, isEnglish)}
                     {alert.filtered_by_pet && (
@@ -297,7 +374,7 @@ export default function AlertHistory() {
         <h3 className="text-sm font-semibold text-foreground mb-4">
           {isEnglish ? 'Alert Statistics (24h)' : '报警统计（24小时）'}
         </h3>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-4 gap-4 mb-4">
           {[
             { label: isEnglish ? 'Total' : '总计', value: alerts.length, color: 'text-foreground' },
             { label: isEnglish ? 'Critical' : '严重', value: alerts.filter(a => a.severity === 'Critical').length, color: 'text-red-500' },
@@ -310,6 +387,33 @@ export default function AlertHistory() {
             </div>
           ))}
         </div>
+        {/* By type breakdown */}
+        {alertTypes.length > 0 && (
+          <div className="border-t border-border pt-3">
+            <p className="text-[11px] text-muted-foreground mb-2">{isEnglish ? 'By Type' : '按类型'}</p>
+            <div className="flex flex-wrap gap-2">
+              {alertTypes.map(type => {
+                const count = alerts.filter(a => a.type.toLowerCase() === type).length;
+                const color = getAlertTypeColor(type);
+                return (
+                  <button
+                    key={type}
+                    onClick={() => setTypeFilter(typeFilter === type ? 'all' : type)}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-lg text-[11px] font-medium transition-all hover:opacity-80"
+                    style={{
+                      backgroundColor: `${color}15`,
+                      color,
+                      border: `1px solid ${color}40`,
+                    }}
+                  >
+                    <span className="font-bold">{count}</span>
+                    <span>{getAlertTypeLabel(type, isEnglish)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

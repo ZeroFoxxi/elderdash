@@ -10,7 +10,7 @@ Guardian Dashboard - Jetson Nano Data Push Script
   nohup python3 jetson_push_data.py > /tmp/push.log 2>&1 &   # 后台运行
 
 集成到 main_v2_fixed.py:
-  在主循环末尾调用 push_to_dashboard(data_dict) 即可
+  在主循环末尾调用 push_vitals(data_dict) 即可
 
 依赖:
   pip3 install requests
@@ -24,7 +24,8 @@ import threading
 from datetime import datetime
 
 # ─── 配置 ────────────────────────────────────────────────────────────────────
-DASHBOARD_URL = "https://elderdash-ff68zyqh.manus.space"
+# ⚠️  重要：Dashboard 地址已更新为最新部署版本
+DASHBOARD_URL = "https://elderdash-ky9k6ssp.manus.space"
 API_KEY = "guardian-jetson-2024"
 PUSH_INTERVAL = 5  # 每5秒推送一次
 DEVICE_ID = "jetson-b01"
@@ -42,6 +43,7 @@ logger = logging.getLogger("guardian-push")
 _last_push_ok = False
 _push_count = 0
 _error_count = 0
+_consecutive_errors = 0  # 连续失败计数（用于退避重试）
 
 
 def push_vitals(data: dict) -> bool:
@@ -61,7 +63,7 @@ def push_vitals(data: dict) -> bool:
       - fusion_rule: str     融合规则 RULE1/RULE2/RULE3/RULE4
       - target_id: str       目标识别 "Human"/"Pet"/"None"
     """
-    global _last_push_ok, _push_count, _error_count
+    global _last_push_ok, _push_count, _error_count, _consecutive_errors
     
     # 构建推送数据
     payload = {
@@ -90,27 +92,36 @@ def push_vitals(data: dict) -> bool:
         if resp.status_code == 200:
             _last_push_ok = True
             _push_count += 1
+            _consecutive_errors = 0
             if _push_count % 12 == 1:  # 每分钟打印一次
                 logger.info(f"[OK] Pushed vitals #{_push_count} | HR={payload['fusedHr']:.0f} bpm, RR={payload['radarRr']:.0f}/min, BVI={payload['bvi']:.0f}")
             return True
+        elif resp.status_code == 401:
+            logger.error(f"[ERR] API Key 无效，请检查 API_KEY 配置（当前：{API_KEY}）")
+            return False
         else:
             _last_push_ok = False
             _error_count += 1
+            _consecutive_errors += 1
             logger.warning(f"[WARN] Push failed: HTTP {resp.status_code} - {resp.text[:100]}")
             return False
     except requests.exceptions.ConnectionError:
         _last_push_ok = False
         _error_count += 1
-        logger.error("[ERR] Connection failed - check internet connectivity")
+        _consecutive_errors += 1
+        if _consecutive_errors == 1 or _consecutive_errors % 12 == 0:
+            logger.error(f"[ERR] 无法连接到 Dashboard ({DASHBOARD_URL}) - 请检查网络连接")
         return False
     except requests.exceptions.Timeout:
         _last_push_ok = False
         _error_count += 1
-        logger.error("[ERR] Request timeout")
+        _consecutive_errors += 1
+        logger.error("[ERR] 请求超时 - Dashboard 响应慢，请检查网络")
         return False
     except Exception as e:
         _last_push_ok = False
         _error_count += 1
+        _consecutive_errors += 1
         logger.error(f"[ERR] Unexpected error: {e}")
         return False
 
@@ -190,12 +201,25 @@ def check_connection() -> bool:
         resp = requests.get(f"{DASHBOARD_URL}/api/ingest/status", timeout=5)
         if resp.status_code == 200:
             data = resp.json()
-            logger.info(f"[OK] Dashboard connected | Browsers watching: {data.get('connectedBrowsers', 0)}")
+            logger.info(f"[OK] Dashboard 连接成功 | 当前观看浏览器数: {data.get('connectedBrowsers', 0)}")
+            logger.info(f"[OK] Dashboard URL: {DASHBOARD_URL}")
             return True
         return False
     except Exception as e:
-        logger.error(f"[ERR] Cannot reach Dashboard: {e}")
+        logger.error(f"[ERR] 无法连接到 Dashboard: {e}")
+        logger.error(f"[ERR] 目标地址: {DASHBOARD_URL}")
         return False
+
+
+def get_status() -> dict:
+    """获取推送状态统计"""
+    return {
+        "dashboard_url": DASHBOARD_URL,
+        "push_count": _push_count,
+        "error_count": _error_count,
+        "last_push_ok": _last_push_ok,
+        "consecutive_errors": _consecutive_errors,
+    }
 
 
 # ─── 独立运行模式（测试用） ───────────────────────────────────────────────────
@@ -209,7 +233,7 @@ if __name__ == "__main__":
     
     # 检查连接
     if not check_connection():
-        logger.warning("Dashboard unreachable, will retry...")
+        logger.warning("Dashboard 暂时不可达，将持续重试...")
     
     # 模拟数据循环（实际使用时替换为真实传感器数据）
     import math
