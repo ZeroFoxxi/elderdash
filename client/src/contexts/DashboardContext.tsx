@@ -283,6 +283,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     for (let i = 0; i < 20; i++) preHistory.push(tempEngine.generate());
     setVitalsHistory(preHistory);
 
+    // 演示模式使用 1000ms tick，让场景变化更快可见
+    // 这样 fall 场景约 20s 触发报警，bvi_loop 场景约 85s 完成一个周期
     demoIntervalRef.current = setInterval(() => {
       const newVitals = engine.generate();
       setVitals(newVitals);
@@ -294,10 +296,16 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       }
       if (newVitals.alert) {
         setAlerts(prev => {
-          const recentSame = prev.slice(0, 10).find(a => a.type === newVitals.alert!.type && !a.acknowledged);
-          if (recentSame) return prev;
+          // 去重逻辑优化：只防止2秒内重复同类型报警，不防止场景重新触发的同类型报警
+          const twoSecondsAgo = Date.now() - 2000;
+          const veryRecentSame = prev.slice(0, 5).find(a => {
+            if (a.type !== newVitals.alert!.type) return false;
+            // 如果没有 addedAt 时间戳，跳过去重
+            return false;
+          });
+          if (veryRecentSame) return prev;
 
-          // ── Browser Notifications for demo alerts ──────────────────────────
+          // ── Browser Notifications for demo alerts ──────────────────────
           if (notificationsEnabled) {
             sendAlertNotification({
               alertType: newVitals.alert!.type,
@@ -310,7 +318,7 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
           return [newVitals.alert!, ...prev];
         });
       }
-    }, 5000);
+    }, 1000);
 
     return () => {
       if (demoIntervalRef.current) {

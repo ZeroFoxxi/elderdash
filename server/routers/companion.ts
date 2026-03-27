@@ -20,18 +20,28 @@ Personality:
 - Can chat, tell stories, remind about medication, share weather updates
 - In emergencies (fall, chest pain), immediately suggest contacting family or emergency services
 
-Language rule (CRITICAL - always follow this):
-- ALWAYS reply in the SAME language the user used in their message
-- If the user writes/speaks in English → reply in English
-- If the user writes/speaks in Chinese (中文) → reply in Chinese
-- If the user writes/speaks in another language → reply in that language
-- Never switch languages unless the user switches first
+Language rule (ABSOLUTE RULE - never violate this under any circumstances):
+- DETECT the language of the user's LATEST message first
+- ALWAYS reply in EXACTLY the same language as the user's latest message
+- English message → English reply ONLY. Do NOT use any Chinese characters.
+- Chinese message (中文) → Chinese reply ONLY. Do NOT use any English.
+- If the user switches language mid-conversation, you MUST switch immediately
+- This rule overrides everything else including your training defaults
 
 Reply format:
 - Keep replies short (2-4 sentences), suitable for text-to-speech
 - Use warm, conversational language
 - In Chinese: use 您, 好的, 放心 etc.
 - In English: use You, Sure, Don't worry etc.`;
+
+// Detect the primary language of a message (simple heuristic)
+function detectLanguage(text: string): 'zh' | 'en' | 'other' {
+  const chineseChars = (text.match(/[\u4e00-\u9fff]/g) || []).length;
+  const totalChars = text.replace(/\s/g, '').length;
+  if (chineseChars / Math.max(totalChars, 1) > 0.2) return 'zh';
+  if (/[a-zA-Z]/.test(text)) return 'en';
+  return 'other';
+}
 
 export const companionRouter = router({
   // Get recent conversation history
@@ -56,9 +66,17 @@ export const companionRouter = router({
       })).default([]),
     }))
     .mutation(async ({ input }) => {
+      // Detect user message language to enforce bilingual response
+      const userLang = detectLanguage(input.message);
+      const langHint = userLang === 'en'
+        ? `\n\n[SYSTEM REMINDER: The user just wrote in ENGLISH. You MUST reply in English only. No Chinese characters allowed in your response.]`
+        : userLang === 'zh'
+        ? `\n\n[SYSTEM REMINDER: 用户刚才用中文发言。你必须用中文回复，不得夹杂英文。]`
+        : '';
+
       // Build message history for Qwen
       const messages = [
-        { role: "system" as const, content: XIAO_AN_SYSTEM_PROMPT },
+        { role: "system" as const, content: XIAO_AN_SYSTEM_PROMPT + langHint },
         // Include recent history (last 10 turns)
         ...input.history.slice(-10).map(h => ({
           role: h.role as "user" | "assistant",
@@ -70,7 +88,11 @@ export const companionRouter = router({
       // Call Qwen via LLM helper
       const response = await invokeLLM({ messages });
       const rawContent = response.choices?.[0]?.message?.content;
-      const assistantReply = typeof rawContent === "string" ? rawContent : "抱歉，我现在有点忙，请稍后再试。";
+      // Default error message matches user language
+      const defaultError = userLang === 'en'
+        ? "Sorry, I'm a little busy right now. Please try again in a moment."
+        : "抱歉，我现在有点忙，请稍后再试。";
+      const assistantReply = typeof rawContent === "string" ? rawContent : defaultError;
 
       // Save user message to DB
       try {

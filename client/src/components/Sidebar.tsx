@@ -238,21 +238,36 @@ export default function Sidebar() {
             {isDemoMode && (
               <div className="space-y-1">
                 <div className="text-[9px] font-medium" style={{ color: 'oklch(0.5 0.01 240)' }}>
-                  {isEnglish ? 'Scenario' : '情境'}
+                  {isEnglish ? 'Scenarios' : '演示场景'}
                 </div>
                 {SCENARIOS.map(s => (
                   <button
                     key={s.id}
                     onClick={() => setDemoScenario(s.id)}
-                    className="w-full flex items-center gap-1.5 px-2 py-1 rounded text-[9px] transition-all text-left"
+                    className="w-full flex flex-col gap-0.5 px-2 py-1.5 rounded text-left transition-all"
                     style={{
                       backgroundColor: demoScenario === s.id ? `${s.color}22` : 'transparent',
                       color: demoScenario === s.id ? s.color : 'oklch(0.5 0.01 240)',
-                      border: demoScenario === s.id ? `1px solid ${s.color}44` : '1px solid transparent',
+                      border: demoScenario === s.id ? `1px solid ${s.color}55` : '1px solid transparent',
                     }}
                   >
-                    <span className="flex-shrink-0">{s.icon}</span>
-                    <span className="truncate">{isEnglish ? s.label : s.label_zh}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="flex-shrink-0 text-[10px]">{s.icon}</span>
+                      <span className="text-[9px] font-medium truncate flex-1">{isEnglish ? s.label : s.label_zh}</span>
+                      {demoScenario === s.id && (
+                        <span
+                          className="flex-shrink-0 text-[7px] px-1 py-0.5 rounded font-bold animate-pulse"
+                          style={{ backgroundColor: `${s.color}33`, color: s.color }}
+                        >
+                          {isEnglish ? 'LIVE' : '运行'}
+                        </span>
+                      )}
+                    </div>
+                    {demoScenario === s.id && (
+                      <div className="text-[8px] leading-tight pl-4" style={{ color: `${s.color}bb` }}>
+                        {isEnglish ? s.description : s.description_zh}
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>

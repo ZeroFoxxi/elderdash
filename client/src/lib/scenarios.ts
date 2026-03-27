@@ -32,8 +32,8 @@ export const SCENARIOS: ScenarioConfig[] = [
     id: 'bvi_loop',
     label: 'Full Loop Demo',
     label_zh: '完整闭环演示',
-    description: 'BVI drop → Agent patrol → AI chat → Recovery',
-    description_zh: 'BVI下降→Agent巡检→AI对话→恢复 完整闭环',
+    description: 'BVI drop → Agent patrol → AI chat → Recovery (~85s)',
+    description_zh: 'BVI下降→Agent巡检→AI对话→恢复 完整闭环（约85秒）',
     icon: '⟳',
     color: '#6366f1',
     isDemo: true,
@@ -42,8 +42,8 @@ export const SCENARIOS: ScenarioConfig[] = [
     id: 'hr_high',
     label: 'HR Elevated',
     label_zh: '心率偏高',
-    description: 'Heart rate elevated 110-130 bpm',
-    description_zh: '心率持续偏高 110-130 bpm',
+    description: 'Heart rate elevated 110-130 bpm (alert in ~5s)',
+    description_zh: '心率持续偏高 110-130 bpm（约5秒触发报警）',
     icon: '♥',
     color: '#f59e0b',
   },
@@ -51,8 +51,8 @@ export const SCENARIOS: ScenarioConfig[] = [
     id: 'fall',
     label: 'Fall Detected',
     label_zh: '跌倒检测',
-    description: 'High movement → sudden stillness',
-    description_zh: '高体动后突然静止，触发跌倒报警',
+    description: 'High movement → stillness → FALL alert (~13s)',
+    description_zh: '高体动→静止→跌倒报警（约13秒内触发）',
     icon: '⚠',
     color: '#ef4444',
   },
@@ -60,8 +60,8 @@ export const SCENARIOS: ScenarioConfig[] = [
     id: 'nocturnal',
     label: 'Nocturnal Anomaly',
     label_zh: '夜间异常',
-    description: 'Respiratory deviation >20% from baseline',
-    description_zh: '夜间呼吸频率偏离基线 >20%',
+    description: 'Respiratory deviation >20% (alert in ~10s)',
+    description_zh: '夜间呼吸频率偏离基线 >20%（约10秒触发）',
     icon: '🌙',
     color: '#8b5cf6',
   },
@@ -69,8 +69,8 @@ export const SCENARIOS: ScenarioConfig[] = [
     id: 'spo2_low',
     label: 'SpO₂ Low',
     label_zh: '血氧偏低',
-    description: 'Blood oxygen persistently below 95%',
-    description_zh: '血氧饱和度持续低于 95%',
+    description: 'Blood oxygen below 95% (alert in ~8s)',
+    description_zh: '血氧饱和度持续低于 95%（约8秒触发）',
     icon: '○',
     color: '#3b82f6',
   },
@@ -115,9 +115,13 @@ export class ScenarioEngine {
 
   setScenario(s: ScenarioType) {
     this.scenario = s;
+    // 切换场景时重置 tick，确保每次都从头开始
+    this.tick = 0;
     if (s === 'fall') {
       this.fallPhase = 1;
       this.fallTimer = 0;
+      this.currentMovement = 2.5;
+      this.currentHR = 75;
     }
     if (s === 'bvi_loop') {
       this.bviLoopPhase = 'active';
@@ -126,6 +130,15 @@ export class ScenarioEngine {
       this.currentBVI = 72;
       this.currentHR = 75;
       this.currentMovement = 3.5;
+    }
+    if (s === 'hr_high') {
+      this.currentHR = 75; // 从正常心率开始上升
+    }
+    if (s === 'spo2_low') {
+      this.currentSpo2 = 97; // 从正常血氧开始下降
+    }
+    if (s === 'nocturnal') {
+      this.currentResp = 16; // 从正常呼吸率开始异常
     }
   }
 
@@ -238,7 +251,8 @@ export class ScenarioEngine {
         targetBVI = 55 + noise(5);
         targetSpo2 = 97 + (Math.random() < 0.3 ? 1 : 0);
         ppgSignalQuality = 75 + Math.round(noise(10));
-        if (this.currentHR > 100) {
+        // 每 5 tick 触发一次报警，避免每秒刷屏
+        if (this.currentHR > 100 && this.tick % 5 === 0) {
           alert = {
             type: 'hr_high',
             severity: 'Warning',
@@ -252,24 +266,26 @@ export class ScenarioEngine {
       case 'fall':
         this.fallTimer++;
         if (this.fallPhase === 1) {
+          // Phase 1: 高体动（跌倒瞬间）— 5 tick 后进入静止期
           targetMovement = 160 + noise(20);
           targetHR = 95 + noise(5);
           targetResp = 22 + noise(2);
           targetBVI = 80;
           targetSpo2 = 97;
           ppgSignalQuality = 60 + Math.round(noise(10));
-          if (this.fallTimer > 8) {
+          if (this.fallTimer > 5) {
             this.fallPhase = 2;
             this.fallTimer = 0;
           }
         } else if (this.fallPhase === 2) {
+          // Phase 2: 完全静止（老人倒地不动）— 8 tick 后触发 FALL 报警
           targetMovement = 0.2 + noise(0.1);
           targetHR = 88 + noise(3);
           targetResp = 18 + noise(1);
           targetBVI = 10;
           targetSpo2 = 96;
           ppgSignalQuality = 50 + Math.round(noise(10));
-          if (this.fallTimer > 12) {
+          if (this.fallTimer > 8) {
             this.fallPhase = 3;
             this.fallTimer = 0;
             alert = {
@@ -281,13 +297,14 @@ export class ScenarioEngine {
             };
           }
         } else {
+          // Phase 3: 跌倒后恢复期
           targetMovement = 1 + noise(0.5);
           targetHR = 85 + noise(5);
           targetResp = 19 + noise(1);
           targetBVI = 20 + this.fallTimer * 0.5;
           targetSpo2 = 97;
           ppgSignalQuality = 70 + Math.round(noise(8));
-          if (this.fallTimer > 30) {
+          if (this.fallTimer > 20) {
             this.scenario = 'normal';
             this.fallPhase = 0;
           }
@@ -301,7 +318,8 @@ export class ScenarioEngine {
         targetBVI = 18 + noise(5);
         targetSpo2 = 96 + (Math.random() < 0.3 ? 1 : 0);
         ppgSignalQuality = 55 + Math.round(noise(10));
-        if (this.tick % 20 === 0) {
+        // 每 10 tick 触发一次，避免报警刷屏
+        if (this.tick % 10 === 0) {
           alert = {
             type: 'nocturnal',
             severity: 'Warning',
@@ -319,7 +337,8 @@ export class ScenarioEngine {
         targetBVI = 35 + noise(5);
         targetSpo2 = 89 + Math.sin(this.tick / 30) * 3;
         ppgSignalQuality = 70 + Math.round(noise(10));
-        if (this.currentSpo2 < 95) {
+        // 每 8 tick 触发一次，避免报警刷屏
+        if (this.currentSpo2 < 95 && this.tick % 8 === 0) {
           alert = {
             type: 'spo2_low',
             severity: 'Critical',
