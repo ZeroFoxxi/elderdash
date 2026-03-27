@@ -225,7 +225,7 @@ export default function LiveMonitor() {
       </div>
 
       {/* ── Row 1: 4 Vital Cards ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {/* Heart Rate */}
         <div className="bg-white rounded-xl p-4 border border-border shadow-sm hover:shadow-md transition-shadow">
           <div className="flex items-center justify-between mb-3">
@@ -292,7 +292,7 @@ export default function LiveMonitor() {
       </div>
 
       {/* ── Row 2: Waveform + Fusion Algorithm ───────────────────────────── */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* HR/Resp Waveform */}
         <div className="col-span-2 bg-white rounded-xl p-4 border border-border shadow-sm">
           <div className="flex items-center justify-between mb-3">
@@ -391,7 +391,7 @@ export default function LiveMonitor() {
       </div>
 
       {/* ── Row 3: Radar Sensor | PPG Sensor | Agent Status ──────────────── */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 
         {/* Radar Sensor Card */}
         <div className="bg-white rounded-xl p-4 border border-border shadow-sm">

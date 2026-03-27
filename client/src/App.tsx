@@ -1,11 +1,13 @@
 // Guardian Dashboard - Main App
 // Active Elderly Companion System - Edge AI Dashboard
+// Mobile: bottom nav bar; Desktop: left sidebar
 
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { DashboardProvider, useDashboard } from "./contexts/DashboardContext";
 import Sidebar from "./components/Sidebar";
+import MobileNav from "./components/MobileNav";
 import TopBar from "./components/TopBar";
 import LiveMonitor from "./pages/LiveMonitor";
 import VitalityIndex from "./pages/VitalityIndex";
@@ -29,16 +31,26 @@ function DashboardContent() {
     }
   };
 
-  // make sure to consider if you need authentication for certain routes
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      <Sidebar />
+      {/* Desktop sidebar — hidden on mobile */}
+      <div className="hidden md:flex">
+        <Sidebar />
+      </div>
+      {/* Main content area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <TopBar />
         <main className="flex-1 overflow-hidden flex flex-col">
           {renderPage()}
         </main>
-        <StatusFooter />
+        {/* Status footer — hidden on mobile to save space */}
+        <div className="hidden md:block">
+          <StatusFooter />
+        </div>
+        {/* Mobile bottom nav — visible only on mobile */}
+        <div className="md:hidden">
+          <MobileNav />
+        </div>
       </div>
     </div>
   );

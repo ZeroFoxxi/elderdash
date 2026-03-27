@@ -179,7 +179,7 @@ export default function VitalityIndex() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl p-4 border border-border shadow-sm">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp size={14} className="text-amber-500" />
@@ -395,7 +395,7 @@ export default function VitalityIndex() {
         </div>
 
         {/* Summary stats for the period */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
           <div className="bg-muted/40 rounded-lg p-3 text-center">
             <div className="text-lg font-bold font-mono text-amber-500">{historyAvgBvi}</div>
             <div className="text-[10px] text-muted-foreground mt-0.5">

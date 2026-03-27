@@ -374,7 +374,7 @@ export default function AlertHistory() {
         <h3 className="text-sm font-semibold text-foreground mb-4">
           {isEnglish ? 'Alert Statistics (24h)' : '报警统计（24小时）'}
         </h3>
-        <div className="grid grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
           {[
             { label: isEnglish ? 'Total' : '总计', value: alerts.length, color: 'text-foreground' },
             { label: isEnglish ? 'Critical' : '严重', value: alerts.filter(a => a.severity === 'Critical').length, color: 'text-red-500' },
