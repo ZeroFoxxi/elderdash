@@ -143,15 +143,18 @@ export function setupRealtimeServer(httpServer: Server, app: Express) {
         apiKey: INGEST_API_KEY,
       };
 
-      await insertVitalsSnapshot(snapshot);
-
-      // Broadcast to all connected browsers
+      try {
+        await insertVitalsSnapshot(snapshot);
+      } catch (dbErr) {
+        console.warn("[Ingest] Database unavailable, continuing without persistence:", (dbErr as any).message);
+      }
+      // Broadcast to all connected browsers (even if DB failed)
       broadcast("vitals", snapshot);
-
       res.json({ ok: true, ts: Date.now() });
     } catch (err) {
       console.error("[Ingest] vitals error:", err);
-      res.status(500).json({ error: "Failed to store vitals" });
+      // Still return 200 to allow Jetson to continue pushing
+      res.json({ ok: false, warning: "Vitals received but not persisted", ts: Date.now() });
     }
   });
 
