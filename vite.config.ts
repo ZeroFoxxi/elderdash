@@ -167,6 +167,16 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        entryFileNames: "assets/index-COjzHnSJ.js",
+        chunkFileNames: "assets/index-COjzHnSJ.js",
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name?.endsWith('.css')) return 'assets/index-Ah5ZO-x3.css';
+          return 'assets/[name]-[hash][extname]';
+        },
+      },
+    },
   },
   server: {
     host: true,

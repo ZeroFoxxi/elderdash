@@ -32,8 +32,8 @@ export const SCENARIOS: ScenarioConfig[] = [
     id: 'bvi_loop',
     label: 'Full Loop Demo',
     label_zh: '完整闭环演示',
-    description: 'BVI drop → Agent patrol → AI chat → Recovery (~85s)',
-    description_zh: 'BVI下降→Agent巡检→AI对话→恢复 完整闭环（约85秒）',
+    description: 'BVI drop → Agent patrol → AI chat → Recovery (~60s)',
+    description_zh: 'BVI下降→Agent巡检→AI对话→恢复 完整闭环（约60秒）',
     icon: '⟳',
     color: '#6366f1',
     isDemo: true,
@@ -86,13 +86,13 @@ function noise(amplitude: number): number {
   return (Math.random() - 0.5) * 2 * amplitude;
 }
 
-// BVI Loop phases for closed-loop demonstration
-// Phase 1 (0-30 ticks):   Normal active state — BVI 70+
-// Phase 2 (30-80 ticks):  Gradual decline — BVI drops to ~25 (sedentary, low activity)
-// Phase 3 (80-100 ticks): Agent triggers patrol — BVI ~25, system detects anomaly
-// Phase 4 (100-140 ticks): AI conversation — BVI starts recovering after interaction
-// Phase 5 (140-200 ticks): Recovery — BVI climbs back to 65+
-// Phase 6 (200+ ticks):   Stable normal — loop restarts
+// BVI Loop phases for closed-loop demonstration (FAST MODE ~60s)
+// Phase 1 (0-10 ticks):   Normal active state — BVI 70+
+// Phase 2 (10-25 ticks):  Gradual decline — BVI drops to ~25 (sedentary, low activity)
+// Phase 3 (25-35 ticks):  Agent triggers patrol — BVI ~25, system detects anomaly
+// Phase 4 (35-48 ticks):  AI conversation — BVI starts recovering after interaction
+// Phase 5 (48-60 ticks):  Recovery — BVI climbs back to 65+
+// Phase 6 (60+ ticks):    Stable normal — loop restarts
 export type BviLoopPhase = 'active' | 'declining' | 'patrol_triggered' | 'ai_conversing' | 'recovering' | 'stable';
 
 export class ScenarioEngine {
@@ -176,34 +176,34 @@ export class ScenarioEngine {
 
       case 'bvi_loop':
         this.bviLoopTimer++;
-        if (this.bviLoopTimer > 200) {
+        if (this.bviLoopTimer > 60) {
           // Restart loop
           this.bviLoopPhase = 'active';
           this.bviLoopTimer = 0;
           this.patrolAlertFired = false;
         }
 
-        if (this.bviLoopTimer <= 30) {
-          // Phase 1: Active — normal healthy state
+        if (this.bviLoopTimer <= 10) {
+          // Phase 1: Active — normal healthy state (10s)
           this.bviLoopPhase = 'active';
-          targetHR = 76 + Math.sin(this.tick / 60) * 5;
-          targetResp = 16 + Math.sin(this.tick / 45) * 1.5;
-          targetMovement = 3.5 + Math.sin(this.tick / 80) * 1.5;
-          targetBVI = 72 + Math.sin(this.tick / 100) * 8;
+          targetHR = 76 + Math.sin(this.tick / 20) * 5;
+          targetResp = 16 + Math.sin(this.tick / 15) * 1.5;
+          targetMovement = 3.5 + Math.sin(this.tick / 25) * 1.5;
+          targetBVI = 72 + Math.sin(this.tick / 30) * 8;
           targetSpo2 = 98;
           ppgSignalQuality = 85 + Math.round(noise(5));
-        } else if (this.bviLoopTimer <= 80) {
-          // Phase 2: Declining — elderly becomes sedentary
+        } else if (this.bviLoopTimer <= 25) {
+          // Phase 2: Declining — elderly becomes sedentary (15s)
           this.bviLoopPhase = 'declining';
-          const progress = (this.bviLoopTimer - 30) / 50;
+          const progress = (this.bviLoopTimer - 10) / 15;
           targetHR = 72 - progress * 5 + noise(2);
           targetResp = 15 + noise(1);
-          targetMovement = 3.5 - progress * 3.0 + noise(0.3); // Movement drops
+          targetMovement = 3.5 - progress * 3.0 + noise(0.3);
           targetBVI = 72 - progress * 48; // BVI drops from 72 to ~24
           targetSpo2 = 97 + (Math.random() < 0.3 ? 1 : 0);
           ppgSignalQuality = 75 + Math.round(noise(8));
-        } else if (this.bviLoopTimer <= 100) {
-          // Phase 3: Patrol triggered — BVI low, agent detects anomaly
+        } else if (this.bviLoopTimer <= 35) {
+          // Phase 3: Patrol triggered — BVI low, agent detects anomaly (10s)
           this.bviLoopPhase = 'patrol_triggered';
           targetHR = 67 + noise(3);
           targetResp = 14 + noise(1);
@@ -211,7 +211,7 @@ export class ScenarioEngine {
           targetBVI = 24 + noise(3);
           targetSpo2 = 97;
           ppgSignalQuality = 72 + Math.round(noise(8));
-          if (!this.patrolAlertFired && this.bviLoopTimer === 85) {
+          if (!this.patrolAlertFired && this.bviLoopTimer === 26) {
             this.patrolAlertFired = true;
             alert = {
               type: 'bvi_low',
@@ -221,24 +221,24 @@ export class ScenarioEngine {
               timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             };
           }
-        } else if (this.bviLoopTimer <= 140) {
-          // Phase 4: AI conversing — interaction in progress, slight improvement
+        } else if (this.bviLoopTimer <= 48) {
+          // Phase 4: AI conversing — interaction in progress, slight improvement (13s)
           this.bviLoopPhase = 'ai_conversing';
-          const progress = (this.bviLoopTimer - 100) / 40;
+          const progress = (this.bviLoopTimer - 35) / 13;
           targetHR = 68 + progress * 5 + noise(2);
           targetResp = 14 + progress * 1 + noise(0.5);
           targetMovement = 0.5 + progress * 1.5 + noise(0.3);
-          targetBVI = 24 + progress * 20; // Slight BVI improvement during conversation
+          targetBVI = 24 + progress * 20;
           targetSpo2 = 97 + (Math.random() < 0.2 ? 1 : 0);
           ppgSignalQuality = 76 + Math.round(noise(6));
         } else {
-          // Phase 5 & 6: Recovery → Stable
-          const progress = Math.min(1, (this.bviLoopTimer - 140) / 60);
+          // Phase 5 & 6: Recovery → Stable (12s)
+          const progress = Math.min(1, (this.bviLoopTimer - 48) / 12);
           this.bviLoopPhase = progress >= 1 ? 'stable' : 'recovering';
           targetHR = 73 + progress * 4 + noise(2);
           targetResp = 15 + progress * 1 + noise(0.5);
           targetMovement = 2 + progress * 2 + noise(0.5);
-          targetBVI = 44 + progress * 25; // BVI recovers to 65+
+          targetBVI = 44 + progress * 25;
           targetSpo2 = 98;
           ppgSignalQuality = 80 + Math.round(noise(6));
         }
