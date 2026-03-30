@@ -153,6 +153,8 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
   const prevVitalsRef = useRef<VitalsData | null>(null);
   // Track last seen alert count to detect truly new alerts
   const lastAlertCountRef = useRef<number>(0);
+  // Track whether patrol has been triggered in current bvi_loop cycle
+  const patrolFiredRef = useRef<boolean>(false);
 
   const toggleLanguage = useCallback(() => setIsEnglish(prev => !prev), []);
 
@@ -260,6 +262,35 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
     lastSeenTs.current = serverTs;
   }, [pollData, notificationsEnabled, isEnglish]);
 
+  // ─── Patrol check tRPC mutation ─────────────────────────────────────────────
+  const patrolCheckMutation = trpc.companion.patrolCheck.useMutation({
+    onSuccess: (data) => {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString(isEnglish ? 'en-US' : 'zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+      // Inject system + AI messages into conversations
+      const systemMsg: ConversationMessage = {
+        role: 'system',
+        content: isEnglish
+          ? 'Proactive patrol triggered — BVI-driven Agent check'
+          : '主动巡检触发 — BVI驱动 Agent 问候',
+        timestamp: timeStr,
+        type: 'patrol',
+      };
+      const aiMsg: ConversationMessage = {
+        role: 'assistant',
+        content: data.reply,
+        timestamp: timeStr,
+        type: 'patrol',
+      };
+      setConversations(prev => [systemMsg, aiMsg, ...prev]);
+      // Auto-navigate to companion log so user can see the patrol message
+      setCurrentPage('companion');
+    },
+    onError: () => {
+      // Silently fail — patrol is non-critical
+    },
+  });
+
   // ─── Demo mode data generation ──────────────────────────────────────────────
   useEffect(() => {
     if (dataSource !== 'demo') {
@@ -292,7 +323,24 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       setVitalsHistory(prev => [...prev, newVitals].slice(-60));
       // Update BVI loop phase for Agent status card
       if (demoScenario === 'bvi_loop') {
-        setBviLoopPhase(engine.getBviLoopPhase());
+        const currentPhase = engine.getBviLoopPhase();
+        setBviLoopPhase(currentPhase);
+
+        // When patrol phase is triggered, call LLM patrolCheck ONCE per cycle
+        if (currentPhase === 'patrol_triggered' && !patrolFiredRef.current) {
+          patrolFiredRef.current = true;
+          patrolCheckMutation.mutate({
+            bvi: Math.round(newVitals.bvi),
+            heartRate: Math.round(newVitals.heartRate),
+            respRate: Math.round(newVitals.respRate),
+            movement: Math.round(newVitals.movement * 10) / 10,
+            isEnglish,
+          });
+        }
+        // Reset patrol flag when loop restarts (back to active phase)
+        if (currentPhase === 'active') {
+          patrolFiredRef.current = false;
+        }
       }
       if (newVitals.alert) {
         setAlerts(prev => {

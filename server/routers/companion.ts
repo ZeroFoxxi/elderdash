@@ -43,6 +43,21 @@ function detectLanguage(text: string): 'zh' | 'en' | 'other' {
   return 'other';
 }
 
+// System prompt for proactive patrol check (BVI-driven)
+const PATROL_SYSTEM_PROMPT = `You are Xiao An (小安), a warm and caring AI companion for elderly people living alone.
+
+You are performing a PROACTIVE PATROL CHECK because the elderly person's Behavioral Vitality Index (BVI) has dropped significantly, indicating they may be sedentary or inactive for too long.
+
+Your task:
+- Greet the elderly person warmly and naturally
+- Mention that you noticed they've been quiet/resting for a while
+- Gently encourage light activity or check if they need anything
+- Reference their current health data naturally (heart rate, BVI) if it helps
+- Keep it SHORT (2-3 sentences), warm, and conversational — suitable for TTS playback
+- ALWAYS reply in Chinese (中文) unless the user's language preference is English
+
+Do NOT be alarming. Be gentle, caring, and encouraging.`;
+
 export const companionRouter = router({
   // Get recent conversation history
   getHistory: publicProcedure
@@ -115,6 +130,71 @@ export const companionRouter = router({
 
       return {
         reply: assistantReply,
+        timestamp: new Date().toISOString(),
+      };
+    }),
+
+  // Proactive patrol check — called by demo mode when BVI drops low
+  // Generates a caring greeting from Xiao An based on current vitals
+  patrolCheck: publicProcedure
+    .input(z.object({
+      bvi: z.number(),
+      heartRate: z.number(),
+      respRate: z.number(),
+      movement: z.number(),
+      isEnglish: z.boolean().default(false),
+    }))
+    .mutation(async ({ input }) => {
+      const langInstruction = input.isEnglish
+        ? `\n\n[SYSTEM: Reply in English only. The user prefers English.]`
+        : `\n\n[SYSTEM: 请用中文回复。用户偏好中文。]`;
+
+      const contextMsg = input.isEnglish
+        ? `Current status: BVI ${input.bvi}/100 (low activity), heart rate ${input.heartRate} bpm, respiration ${input.respRate}/min, movement ${input.movement}. The elderly person has been inactive for a while. Please greet them warmly and gently encourage light activity.`
+        : `当前状态：BVI活力指数 ${input.bvi}/100（活动量偏低），心率 ${input.heartRate} 次/分，呼吸 ${input.respRate} 次/分，体动 ${input.movement}。老人已有一段时间没有活动了。请温暖地问候并轻柔地鼓励适当活动。`;
+
+      const messages = [
+        { role: "system" as const, content: PATROL_SYSTEM_PROMPT + langInstruction },
+        { role: "user" as const, content: contextMsg },
+      ];
+
+      let patrolReply: string;
+      try {
+        const response = await invokeLLM({ messages });
+        const rawContent = response.choices?.[0]?.message?.content;
+        patrolReply = typeof rawContent === "string" && rawContent.trim()
+          ? rawContent.trim()
+          : (input.isEnglish
+              ? `Hello! I noticed you've been resting quietly for a while. Your vitality index is at ${input.bvi} today. Would you like to take a short walk or chat for a bit?`
+              : `您好！我注意到您已经安静休息了一段时间，今天的活力指数是 ${input.bvi}。要不要起来走走，或者跟我聊聊天呀？`);
+      } catch (e) {
+        patrolReply = input.isEnglish
+          ? `Hello! I noticed you've been resting quietly. Your vitality index is at ${input.bvi} today. How are you feeling?`
+          : `您好！我注意到您已经休息了一段时间，活力指数是 ${input.bvi}。您现在感觉怎么样？`;
+      }
+
+      // Save to DB as patrol log
+      try {
+        await insertCompanionLog({
+          role: "system",
+          content: input.isEnglish
+            ? `Proactive patrol triggered — BVI ${input.bvi}/100 (low activity detected)`
+            : `主动巡检触发 — BVI活力指数 ${input.bvi}/100（检测到活动量偏低）`,
+          logType: "patrol",
+          deviceId: "demo",
+        });
+        await insertCompanionLog({
+          role: "assistant",
+          content: patrolReply,
+          logType: "patrol",
+          deviceId: "demo",
+        });
+      } catch (e) {
+        console.warn("[Patrol] Failed to save patrol log:", e);
+      }
+
+      return {
+        reply: patrolReply,
         timestamp: new Date().toISOString(),
       };
     }),
