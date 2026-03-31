@@ -285,6 +285,20 @@ export function DashboardProvider({ children }: { children: React.ReactNode }) {
       setConversations(prev => [systemMsg, aiMsg, ...prev]);
       // Auto-navigate to companion log so user can see the patrol message
       setCurrentPage('companion');
+      // 自动 TTS 播报 AI 问候语（浏览器原生 SpeechSynthesis）
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utt = new SpeechSynthesisUtterance(data.reply);
+        utt.lang = isEnglish ? 'en-US' : 'zh-CN';
+        utt.rate = 0.9;
+        utt.pitch = 1.05;
+        const voices = window.speechSynthesis.getVoices();
+        const preferred = voices.find(v =>
+          isEnglish ? v.lang.startsWith('en') : (v.lang.startsWith('zh') && v.localService)
+        ) || voices.find(v => isEnglish ? v.lang.startsWith('en') : v.lang.startsWith('zh'));
+        if (preferred) utt.voice = preferred;
+        window.speechSynthesis.speak(utt);
+      }
     },
     onError: () => {
       // Silently fail — patrol is non-critical

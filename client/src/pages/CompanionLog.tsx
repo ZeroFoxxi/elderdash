@@ -164,6 +164,21 @@ export default function CompanionLog() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // 监听 Jetson 推送的 patrol 问候语，自动 TTS 播报
+  const lastConvLengthRef = useRef(0);
+  useEffect(() => {
+    if (!isTtsEnabled) return;
+    if (conversations.length > lastConvLengthRef.current) {
+      // 找到新到的 assistant 类型消息
+      const newMsgs = conversations.slice(0, conversations.length - lastConvLengthRef.current);
+      const toSpeak = newMsgs.find(m => m.role === 'assistant');
+      if (toSpeak) {
+        speakText(toSpeak.content, isEnglish ? 'en-US' : 'zh-CN');
+      }
+    }
+    lastConvLengthRef.current = conversations.length;
+  }, [conversations, isTtsEnabled, isEnglish]);
+
   // Initialize with welcome message (re-init when language changes)
   useEffect(() => {
     setMessages([{
